@@ -1,0 +1,1969 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Seguridad: la aplicación no puede conectarse a ningún servidor externo. Solo se permiten el propio archivo,
+     los datos internos (data:/blob:) y WebAssembly para la detección de posturas, que se ejecuta en el equipo. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Análisis Postural OpenSim</title>
+<script>
+  // Tema claro u oscuro: el último elegido por el usuario; por defecto, el claro
+  try{ document.documentElement.dataset.theme = localStorage.getItem('apos.theme') || 'light'; }
+  catch(e){ document.documentElement.dataset.theme = 'light'; }
+</script>
+<style>
+:root{
+  --bg:#f3f2ef; --surface:#fcfcfb; --surface-2:#f7f6f3; --line:#dcdad3; --line-soft:#ebe9e3;
+  --ink:#0b0b0b; --ink-2:#52514e; --ink-3:#6b6962;
+  --accent:#2a78d6; --accent-ink:#ffffff; --accent-soft:#e3eefb;
+  --ok:#1b7d1b; --ok-hover:#156615;   /* verde de «Aceptar»: contraste 5,2:1 con texto blanco */
+  --c1:#0ca30c; --c2:#fab219; --c3:#ec835a; --c4:#d03b3b;
+  --c1-soft:#d8f0d8; --c2-soft:#fdeec9; --c3-soft:#fbe0d4; --c4-soft:#f5d3d3;
+  --field:#ffffff; --chip:#ffffff; --tabs-bg:#e6e4de; --figure-bg:#ffffff; --notice-line:#bcd6f5;
+  --danger:#c62828; --danger-bg:#fdecea; --danger-line:#f2b8b5;
+  --tag-ok-bg:#eef8ee; --tag-ok-line:#9bd29b; --tag-ok-ink:#185c18;
+  --tag-fix-bg:#fdf3e6; --tag-fix-line:#f1c48f; --tag-fix-ink:#7a4300;
+  --radius:10px;
+  color-scheme:light;
+}
+/* Tema oscuro: se activa con el botón de la barra superior (o según el sistema la primera vez) */
+:root[data-theme="dark"]{
+  --bg:#141413; --surface:#1e1e1d; --surface-2:#262624; --line:#3b3a37; --line-soft:#2f2e2c;
+  --ink:#f0efec; --ink-2:#c3c2b7; --ink-3:#a5a49b;
+  --accent:#3987e5; --accent-ink:#ffffff; --accent-soft:#1c2f48;
+  --c1-soft:#1f3a1f; --c2-soft:#45370f; --c3-soft:#4a2b1f; --c4-soft:#4a2020;
+  --field:#151514; --chip:#242422; --tabs-bg:#1a1a19; --figure-bg:#1e1e1d; --notice-line:#2c4a70;
+  --danger:#ff8a80; --danger-bg:#3d1714; --danger-line:#7a2c27;
+  --tag-ok-bg:#16301a; --tag-ok-line:#2f6b35; --tag-ok-ink:#9be0a0;
+  --tag-fix-bg:#3a2a12; --tag-fix-line:#7a5420; --tag-fix-ink:#f5c27a;
+  color-scheme:dark;
+}
+/* En el tema oscuro, las tablas y figuras APA se muestran sobre «papel» blanco, como en la impresión */
+:root[data-theme="dark"] .apa,:root[data-theme="dark"] .apa-refs{background:#fff;border-radius:8px;padding:16px 20px}
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;transition:background-color .15s ease,border-color .15s ease,color .15s ease}
+:focus-visible{outline:3px solid var(--accent);outline-offset:2px;border-radius:6px}
+.top :focus-visible{outline-color:#8cc0ff}
+h2{font-size:19px;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+h3{font-size:16px;margin:0 0 10px}
+/* Iconos: trazo monocromático que hereda el color del texto */
+.ico{width:18px;height:18px;flex:none;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+h2 .ico{width:20px;height:20px;color:var(--ink-2)}
+.pict{width:34px;height:34px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;color:var(--ink-2)}
+.opt.sel .pict{color:var(--accent)}
+.opt .pict{width:28px;height:28px}
+.bp-name .pict{width:26px;height:26px;vertical-align:middle;margin-right:6px}
+button.btn,.top .actions button,.tabs button{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+.btn.icon-only{padding:8px;min-width:40px}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+td.postura{white-space:nowrap}
+
+/* Modos de observación, video y fotografías */
+.seg{display:inline-flex;background:var(--tabs-bg);border-radius:10px;padding:4px;gap:4px;margin-bottom:12px;flex-wrap:wrap}
+.seg button{border:0;background:none;border-radius:7px;padding:8px 14px;min-height:40px;display:inline-flex;align-items:center;gap:7px;color:var(--ink-2)}
+.seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.media-top{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:10px}
+.stage{position:relative;background:#141414;border-radius:8px;display:grid;place-items:center;min-height:220px;overflow:hidden}
+.stage video,.stage img{display:block;max-width:100%;max-height:58vh}
+.stage img:not([src]),.stage video:not([src]){display:none}
+.stage-empty{color:#cfcdc6;text-align:center;padding:24px;margin:0;max-width:420px}
+.timeline{position:relative;margin-top:10px}
+.timeline input{width:100%;margin:0}
+.marks{position:relative;margin:7px 8px 0;height:0}
+.marks button{position:absolute;top:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:2px;width:22px;padding:2px 0;border:1px solid var(--line);border-radius:5px;background:var(--surface);font-size:11px;min-height:0;line-height:1}
+.marks button:hover,.marks button:focus-visible{border-color:var(--accent);z-index:2}
+.marks button::before{content:'';position:absolute;left:50%;top:-6px;height:5px;border-left:1px solid var(--ink-3)}
+.marks .cat i{width:16px;height:16px;font-size:11px;border-radius:4px}
+.vctrl{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px}
+.vctrl select,.vctrl input[type=number]{width:auto;padding:6px 8px}
+.vctrl input[type=number]{width:72px}
+.vctrl label{display:inline-flex;align-items:center;gap:6px;margin-left:6px}
+.tc{font-variant-numeric:tabular-nums;font-weight:600;padding:0 8px}
+.thumbs{display:flex;gap:6px;overflow-x:auto;padding:8px 0 2px}
+.thumbs button{position:relative;flex:none;padding:0;border:2px solid transparent;border-radius:7px;background:#141414;min-height:0}
+.thumbs button.on{border-color:var(--accent)}
+.thumbs img{display:block;height:60px;border-radius:5px}
+.thumbs .done{position:absolute;right:3px;bottom:3px;width:18px;height:18px;border-radius:50%;background:var(--c1);color:#fff;display:grid;place-items:center}
+.thumbs .done .ico{width:12px;height:12px;stroke-width:3}
+.thumb{padding:0;border:1px solid var(--line);border-radius:6px;background:#141414;min-height:0;display:block}
+.thumb img{display:block;width:76px;height:56px;object-fit:cover;border-radius:5px}
+.gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px}
+.gallery figure{margin:0;border:1px solid var(--line-soft);border-radius:8px;overflow:hidden;background:var(--figure-bg);break-inside:avoid}
+.gallery button{display:block;width:100%;padding:0;border:0;background:#141414;min-height:0}
+.gallery img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}
+.gallery figcaption{padding:7px 9px;font-size:13px;display:flex;gap:6px 8px;flex-wrap:wrap;align-items:center}
+/* Imágenes grandes al imprimir: una por fila, al ancho de la página y sin recortar, como en el visor */
+.gallery.big{grid-template-columns:1fr;gap:16px}
+.gallery.big img{aspect-ratio:auto;width:auto;max-width:100%;max-height:21cm;margin:0 auto}
+.gallery.big button{background:transparent}
+.gallery.big .big-desc{display:block;width:100%;font-size:13px;color:var(--ink-2)}
+dialog#viewer{border:0;border-radius:12px;padding:14px;background:var(--surface);color:var(--ink);max-width:min(960px,94vw);width:auto}
+dialog#viewer::backdrop,dialog#exportDlg::backdrop{background:rgba(0,0,0,.6)}
+dialog#exportDlg{border:0;border-radius:12px;padding:18px 20px;max-width:min(520px,94vw);background:var(--surface);color:var(--ink)}
+.export-opt{display:grid;grid-template-columns:160px 1fr;gap:12px;align-items:center;margin:12px 0}
+.export-opt p{margin:0}
+.export-opt .btn{white-space:nowrap}
+@media (max-width:520px){.export-opt{grid-template-columns:1fr}}
+#viewImg{display:block;max-width:100%;max-height:70vh;margin:0 auto 10px;border-radius:6px;background:#141414}
+
+/* Detección automática de postura */
+.stage canvas.overlay{position:absolute;left:0;top:0;pointer-events:none}
+.subs{text-align:center;color:#fff;background:#141414;border-radius:8px;padding:8px 12px;margin-top:6px;font-size:16px;line-height:1.45}
+.subs b{color:#ffe08a}
+@media (max-width:640px){.subs{font-size:13px;padding:6px 8px}}
+.gallery .det-cap{display:block;width:100%;font-size:12px;color:var(--ink-2);line-height:1.35}
+.detect{border-bottom:1px solid var(--line-soft);margin-bottom:12px;padding-bottom:6px}
+.detect > .vctrl{margin-top:0}
+.detect-status{margin:8px 0 4px;display:flex;gap:6px 10px;flex-wrap:wrap;align-items:center}
+.detect-status .warn,.warn-box{color:var(--danger);background:var(--danger-bg);border:1px solid var(--danger-line);border-radius:6px;padding:2px 9px;font-weight:600}
+.detect details summary{cursor:pointer;color:var(--ink-2);padding:4px 0}
+.detect-opts{display:flex;flex-direction:column;gap:6px;margin:8px 0 4px}
+.detect-opts label{display:inline-flex;align-items:center;gap:8px}
+.detect-opts select{width:auto;min-width:120px;padding:4px 8px}
+.detect-cfg{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px 16px;margin:8px 0}
+.detect-cfg label{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.detect-cfg input[type=number]{width:80px;padding:5px 8px}
+.detect-cfg input[type=color]{width:48px;height:30px;padding:2px;border:0;border-radius:6px;background:var(--fill);cursor:pointer}
+.cfg-head{margin:12px 0 0;font-weight:700}
+.tag{display:inline-block;font-size:12px;border-radius:5px;padding:0 6px;margin-left:6px;border:1px solid var(--line);color:var(--ink-2);font-weight:500;vertical-align:middle}
+.tag.ok{border-color:var(--tag-ok-line);background:var(--tag-ok-bg);color:var(--tag-ok-ink)}
+.tag.fix{border-color:var(--tag-fix-line);background:var(--tag-fix-bg);color:var(--tag-fix-ink)}
+td.postura .pict{width:28px;height:28px}
+@media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+.muted{color:var(--ink-2)}
+.small{font-size:13px}
+/* Barra superior */
+.top{position:sticky;top:0;z-index:5;background:#3a3a3a;color:#fff;display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;padding:10px 16px}
+.brand{font-weight:700;font-size:18px;letter-spacing:.2px}
+.brand .fname{font-weight:400;font-size:14px;opacity:.8;margin-left:8px}
+.brand .dirty{color:#fab219;margin-left:4px}
+.top .actions{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.top .actions button{background:#4a4a4a;border:1px solid #626262;color:#fff;border-radius:8px;padding:6px 12px;min-height:40px}
+.top .actions button:hover{background:#575757}
+/* Botones de archivo y de tema: solo icono (el nombre aparece al pasar el puntero) */
+.top .actions button.ico-btn{min-width:40px;padding:6px 9px}
+.top .actions button.ico-btn .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.top .actions button[data-act="export"]{background:var(--accent);border-color:var(--accent);font-weight:600}
+.top .actions button[data-act="export"]:hover{background:var(--accent);filter:brightness(1.1)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+section.sec{display:block;margin-bottom:28px;scroll-margin-top:76px}
+.sec-title{display:flex;align-items:center;gap:10px;font-size:20px;margin:6px 0 12px}
+.sec-title span{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--ink);color:var(--surface);font-size:15px}
+.help-details summary{cursor:pointer;font-weight:700;font-size:16px}
+.help-details[open] summary{margin-bottom:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:16px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+.btn{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 14px;min-height:40px}
+.btn:hover{background:var(--surface-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.btn.primary:hover{filter:brightness(1.08)}
+.btn.ok{background:var(--ok);border-color:var(--ok);color:#fff;font-weight:600}
+.btn.ok:hover{background:var(--ok-hover);border-color:var(--ok-hover)}
+/* «Postura guardada» se muestra en azul y luego el botón vuelve a verde */
+.btn.ok.saved,.btn.ok.saved:disabled{opacity:1;cursor:default;background:var(--accent);border-color:var(--accent);box-shadow:none}
+.btn.ok .kbd{background:rgba(255,255,255,.18);border-color:rgba(255,255,255,.6);color:#fff}
+
+/* Pie de página: enlace al proyecto y licencias */
+.foot{max-width:1180px;margin:8px auto 0;padding:16px;border-top:1px solid var(--line);color:var(--ink-2);font-size:13px;line-height:1.6;display:flex;flex-wrap:wrap;gap:4px 18px;justify-content:space-between}
+.foot a{color:var(--accent)}
+.foot p{margin:0}
+.btn.danger{color:var(--danger)}
+/* «Cargar video» y «Cargar fotografías» destacan en gris oscuro hasta que se carga algo */
+.btn.load{background:#3f3f3f;border-color:#3f3f3f;color:#fff;font-weight:600}
+.btn.load:hover{background:#2f2f2f;border-color:#2f2f2f}
+:root[data-theme="dark"] .btn.load{background:#5a5a5a;border-color:#6a6a6a}
+.btn:disabled{opacity:.45;cursor:default}
+label.field{display:block;margin-bottom:10px}
+label.field span{display:block;font-size:13px;color:var(--ink-2);margin-bottom:3px}
+input[type=text],input[type=number],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--field)}
+table{border-collapse:collapse;width:100%}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line-soft);text-align:left;vertical-align:middle}
+th{font-size:13px;color:var(--ink-2);font-weight:600}
+td.n,th.n{text-align:right;font-variant-numeric:tabular-nums}
+.tbl-wrap{overflow-x:auto}
+.empty{padding:30px;text-align:center;color:var(--ink-2)}
+.notice{background:var(--accent-soft);border:1px solid var(--notice-line);border-radius:8px;padding:10px 12px;margin-bottom:16px;display:flex;justify-content:space-between;gap:10px;align-items:center}
+.kbd{display:inline-block;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 5px;font-size:12px;background:var(--chip);color:var(--ink)}
+/* Botón flotante para volver al inicio de la página */
+.to-top{position:fixed;right:18px;bottom:18px;z-index:7;width:46px;height:46px;border-radius:50%;border:0;background:var(--accent);color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.25);display:grid;place-items:center}
+.to-top:hover{filter:brightness(1.1)}
+.to-top .ico{width:22px;height:22px;stroke-width:2.5}
+
+@media (max-width:760px){
+  .top{padding:8px 12px}
+  .top .actions{margin-left:0;gap:4px}
+  .top .actions button{min-width:44px;min-height:44px;padding:0}
+  .top .actions .lbl{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+  .tabs button{padding:12px 10px}
+}
+@media (max-height:600px){.top{position:static}}
+:root{--bg:#f3f3f3;--surface:#ffffff;--surface-2:#f6f6f6;--fill:rgba(0,0,0,.055);--fill-hover:rgba(0,0,0,.09);--accent:#005fb8;--accent-ink:#ffffff;--accent-soft:#e1edf8;--field-line:#868686;--radius:8px}
+:root[data-theme="dark"]{--bg:#202020;--surface:#2b2b2b;--surface-2:#323232;--fill:rgba(255,255,255,.075);--fill-hover:rgba(255,255,255,.12);--accent:#4cc2ff;--accent-ink:#002642;--accent-soft:#1d3546;--field-line:#9d9d9d}
+body{font-family:"Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
+.card,.notice,.cats4 .col,.gallery figure,.thumb,.marks button,.kbd,.tag,.warn-box,.warn-soft,.detect-status .warn,.accept-wrap .tip{border:0}
+.card,.seg button.on,.to-top,.accept-wrap .tip{box-shadow:none}
+.cats4 .col{background:var(--surface-2)}
+.cats4 .col h3{border-bottom:0;background:var(--fill)}
+.gallery figure{background:var(--surface-2)}
+.detect{border-bottom:0;padding-bottom:2px}
+.foot{border-top:0}
+.btn{border:0;background:var(--fill);border-radius:6px}
+.btn:hover{background:var(--fill-hover)}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:var(--accent);filter:brightness(1.08)}
+.btn.primary .kbd{background:transparent;color:inherit;box-shadow:inset 0 0 0 1px currentColor}
+.btn.ok,.btn.load{border:0}
+.btn.danger{background:var(--fill)}
+.kbd{background:var(--fill)}
+.opt{border:0;background:var(--fill);border-radius:6px}
+.opt:hover{background:var(--fill-hover)}
+.opt.sel{background:var(--accent);color:var(--accent-ink);box-shadow:none}
+.opt.sel .pict{color:var(--accent-ink)}
+.opt b{border:0;background:var(--surface)}
+.opt.sel b{background:rgba(255,255,255,.22);color:inherit}
+:root[data-theme="dark"] .opt.sel b{background:rgba(0,0,0,.18)}
+input[type=text],input[type=number],select{border:0;border-bottom:1px solid var(--field-line);border-radius:4px 4px 0 0;background:var(--fill)}
+.code-digits span{border:0;background:var(--fill)}
+.code-digits span.next{box-shadow:inset 0 -3px 0 var(--accent)}
+.seg{background:var(--fill)}
+.seg button.on{background:var(--surface)}
+.top{background:#2c2c2c}
+.top .actions button{border:0;background:rgba(255,255,255,.08)}
+.top .actions button:hover{background:rgba(255,255,255,.15)}
+.top .actions button[data-act="print"],.top .actions button[data-act="export"]{color:var(--accent-ink);border:0}
+.to-top{color:var(--accent-ink)}
+.marks button{background:var(--fill)}
+.mot-panel{background:var(--fill);border-radius:6px;padding:8px 10px;margin:4px 0 8px}
+.mot-model{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:6px;max-width:100%}
+.mot-model label{display:inline-flex;align-items:center;gap:8px;max-width:100%;min-width:0}
+.export-opt > *{min-width:0}
+.mot-model select{width:auto;max-width:100%;min-width:0;padding:4px 8px}
+.mot-panel ul{margin:6px 0;padding-left:18px;max-height:130px;overflow:auto}
+.export-note{background:var(--fill);border-radius:6px;padding:8px 10px;margin:4px 0 8px}
+.privacy-actions{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;margin:8px 0}
+.privacy-actions label{display:inline-flex;gap:8px;align-items:center}
+#privacidad{scroll-margin-top:76px}
+.stage video{max-height:62vh}
+.save-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.save-row input[type=text]{flex:1;min-width:200px;width:auto}
+.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.frames figure{margin:0;border-radius:8px;overflow:hidden;background:var(--surface-2);display:flex;flex-direction:column}
+.frames figure > button{display:block;width:100%;padding:0;border:0;background:#141414;min-height:0}
+.frames img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}
+.frames figcaption{padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:6px;flex:1}
+.frames .fhead{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.frames .fdesc{color:var(--ink-2);line-height:1.35}
+.frames input[type=text]{padding:5px 8px;font-size:13px}
+.frames .vctrl{margin-top:auto}
+.frames .btn{min-height:34px;padding:5px 10px;font-size:13px}
+.job{background:var(--fill);border-radius:6px;padding:8px 10px;margin:4px 0 8px}
+.job progress{width:100%;height:10px;margin:6px 0}
+.job .vctrl{margin-top:4px}
+.export-opt .opts{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.export-opt .opts label{display:inline-flex;align-items:center;gap:8px}
+.export-opt .opts select{width:auto;padding:4px 8px}
+dialog#exportDlg{max-width:min(640px,94vw)}
+.export-opt{grid-template-columns:190px 1fr}
+.export-opt .btn{white-space:normal;text-align:left;justify-content:flex-start}
+.marks button b{font-size:11px}
+.marks button{width:24px}
+.warn-box{display:inline-block}
+/* Tramo del video que se analiza y se exporta: franja sobre la barra de tiempo */
+.timeline input{position:relative;z-index:1;background:transparent}
+.range-band{position:absolute;top:0;height:22px;border-radius:4px;background:var(--accent);opacity:.28;pointer-events:none}
+.range-row{border-top:1px solid var(--line-soft);padding-top:8px;margin-top:10px}
+.range-row .tc{min-width:150px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Análisis Postural OpenSim<span class="fname" id="fname"></span><span class="dirty" id="dirty"></span></div>
+  <div class="actions">
+    <button class="ico-btn" data-act="new" data-icon="new" title="Nuevo proyecto">Nuevo proyecto</button>
+    <button class="ico-btn" data-act="open" data-icon="open" title="Abrir proyecto (.apo)">Abrir proyecto</button>
+    <button class="ico-btn" data-act="save" data-icon="save" title="Guardar">Guardar</button>
+    <button class="ico-btn" data-act="saveas" data-icon="saveas" title="Guardar como">Guardar como</button>
+    <button data-act="export" data-icon="download" title="Exportar el video con el esqueleto y los archivos para OpenSim">Exportar</button>
+    <button class="ico-btn" data-act="theme" id="themeBtn" title="Tema oscuro">Tema oscuro</button>
+  </div>
+</header>
+<main>
+  <div class="notice" id="restored" hidden><span style="display:flex;gap:8px;align-items:center" data-icon="history">Se recuperó el trabajo que no se había guardado. Vuelva a cargar el video para ver el esqueleto.</span><button class="btn" id="restoredClose" data-icon="close">Cerrar</button></div>
+
+  <section class="sec" id="sec-video">
+    <h1 class="sec-title"><span>1</span>Video</h1>
+    <div class="card">
+      <div class="detect">
+        <div class="vctrl">
+          <button class="btn primary" id="detectBtn" data-icon="scan">Detectar postura <span class="kbd">D</span></button>
+          <button class="btn" id="analyzeBtn" data-icon="film">Analizar todo el video</button>
+          <span class="small muted" id="trackInfo"></span>
+        </div>
+        <div class="job" id="jobBox" hidden>
+          <span class="small" id="jobText"></span>
+          <progress id="jobBar" max="1" value="0"></progress>
+          <div class="vctrl"><button class="btn" id="jobCancel" data-icon="close">Cancelar</button></div>
+        </div>
+        <details class="small">
+          <summary>Ajustes de detección</summary>
+          <div class="detect-opts">
+            <label><input type="checkbox" id="realtime" checked autocomplete="off"> Detectar la postura en tiempo real al reproducir el video y al moverse por él</label>
+            <label><input type="checkbox" id="showSubs" checked autocomplete="off"> Mostrar subtítulos con la postura y los ángulos</label>
+            <label><input type="checkbox" id="showAngles" checked autocomplete="off"> Mostrar los ángulos de las articulaciones en el esqueleto</label>
+            <label><input type="checkbox" id="bakeSkel" checked autocomplete="off"> Grabar el esqueleto, sus ángulos y los subtítulos en las imágenes guardadas</label>
+            <label><input type="checkbox" id="blurFace" checked autocomplete="off"> Difuminar el rostro en las imágenes guardadas y en el video exportado (privacidad)</label>
+            <label>Intensidad del difuminado <select data-cfg="blurBlocks"><option value="7">Suave</option><option value="5">Media</option><option value="3">Fuerte</option></select></label>
+          </div>
+          <div class="detect-cfg">
+            <label>Espalda inclinada desde (°) <input type="number" data-cfg="trunk" min="5" max="60"></label>
+            <label>Espalda girada o inclinada de lado desde (°) <input type="number" data-cfg="twist" min="5" max="60"></label>
+            <label>Rodilla flexionada por debajo de (°) <input type="number" data-cfg="knee" min="90" max="175"></label>
+            <label>Pie levantado desde (% de la pierna) <input type="number" data-cfg="lift" min="3" max="40"></label>
+            <label><input type="checkbox" data-cfg="walk"> Detectar «caminando» (compara con 0,5 s antes)</label>
+            <label>Caminando si la cadera se desplaza más de (% del tronco) <input type="number" data-cfg="walkDist" min="5" max="100"></label>
+            <label><input type="checkbox" data-cfg="avg3"> Promediar 3 fotogramas cercanos (±0,1 s) al detectar con el video en pausa</label>
+          </div>
+          <p class="cfg-head">Aspecto del esqueleto y los ángulos</p>
+          <div class="detect-cfg">
+            <label>Color del esqueleto <input type="color" data-cfg="skelColor"></label>
+            <label>Grosor de las líneas del esqueleto (px) <input type="number" data-cfg="skelWidth" min="1" max="10" step="0.5"></label>
+            <label>Color del texto de los ángulos <input type="color" data-cfg="angColor"></label>
+            <label>Tamaño del texto de los ángulos (px) <input type="number" data-cfg="angSize" min="8" max="32"></label>
+            <label>Color del compás <input type="color" data-cfg="arcColor"></label>
+            <label>Tamaño del compás (radio en px) <input type="number" data-cfg="arcSize" min="6" max="40"></label>
+            <div class="vctrl"><button class="btn" id="styleReset" data-icon="undo">Restaurar colores y tamaños</button></div>
+          </div>
+          <p class="muted">La detección usa MediaPipe Pose. Funciona mejor con una sola persona, de cuerpo entero y vista lateral o en diagonal. Revise cada resultado antes de usarlo.</p>
+        </details>
+      </div>
+      <div class="media-top">
+        <button class="btn load" id="loadVideo" data-icon="video">Cargar video</button>
+        <span class="muted small" id="videoName">Ningún video cargado</span>
+      </div>
+      <div class="stage"><video id="vid" playsinline muted preload="auto"></video><canvas class="overlay" id="ovVideo" aria-hidden="true"></canvas><p class="stage-empty" id="vidEmpty">Cargue un video (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real.</p></div>
+      <div class="subs" id="subsVideo" role="status" hidden></div>
+      <div class="timeline"><div class="range-band" id="rangeBand" hidden></div><input type="range" id="seek" min="0" max="0" step="0.01" value="0" aria-label="Posición del video"><div class="marks" id="marks"></div></div>
+      <div class="vctrl">
+        <button class="btn icon-only" id="vPrevS" data-icon="skipB" title="Fotograma guardado anterior (B)" aria-label="Fotograma guardado anterior"></button>
+        <button class="btn icon-only" id="vBack1" data-icon="chevsL" title="Retroceder 1 s (Mayús + ←)" aria-label="Retroceder 1 segundo"></button>
+        <button class="btn icon-only" id="vBackF" data-icon="chevL" title="Fotograma anterior (←)" aria-label="Fotograma anterior"></button>
+        <button class="btn primary icon-only" id="vPlay" title="Reproducir o pausar (Espacio)" aria-label="Reproducir"></button>
+        <button class="btn icon-only" id="vFwdF" data-icon="chevR" title="Fotograma siguiente (→)" aria-label="Fotograma siguiente"></button>
+        <button class="btn icon-only" id="vFwd1" data-icon="chevsR" title="Avanzar 1 s (Mayús + →)" aria-label="Avanzar 1 segundo"></button>
+        <button class="btn icon-only" id="vNextS" data-icon="skipF" title="Fotograma guardado siguiente (N)" aria-label="Fotograma guardado siguiente"></button>
+        <span class="tc" id="vTime">00:00.00 / 00:00.00</span>
+        <label class="small">Velocidad <select id="vRate"><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+        <label class="small">Fotogramas/s <input type="number" id="vFps" min="1" max="240" value="30"></label>
+      </div>
+      <div class="vctrl range-row">
+        <b class="small">Tramo a analizar y exportar</b>
+        <button class="btn" id="rangeA" data-icon="rangeA" title="El tramo empieza en el momento actual (I)">Inicio aquí <span class="kbd">I</span></button>
+        <span class="tc small" id="rangeText">Todo el video</span>
+        <button class="btn" id="rangeB" data-icon="rangeB" title="El tramo termina en el momento actual (O)">Fin aquí <span class="kbd">O</span></button>
+        <button class="btn" id="rangeAll" data-icon="close" title="Analizar y exportar todo el video">Todo el video</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="save-row">
+        <button class="btn ok" id="saveFrame" data-icon="camera">Guardar fotograma <span class="kbd">Enter</span></button>
+        <input type="text" id="frameNote" placeholder="Nota (opcional), por ejemplo la tarea o el momento" aria-label="Nota del fotograma">
+        <span class="sr" id="saveLive" aria-live="polite"></span>
+      </div>
+      <p class="small task-warn" id="dupWarn" hidden></p>
+      <p class="small detect-status" id="detectStatus" role="status"></p>
+      <p class="small detect-status" id="detWarn" role="status"></p>
+    </div>
+    <p class="small muted">Atajos de teclado: <span class="kbd">Espacio</span> reproduce o pausa, <span class="kbd">←</span> <span class="kbd">→</span> cambian de fotograma, <span class="kbd">Mayús</span> + flecha salta 1 s, <span class="kbd">D</span> detecta la postura, <span class="kbd">I</span> / <span class="kbd">O</span> marcan el inicio y el fin del tramo, <span class="kbd">Enter</span> guarda el fotograma y <span class="kbd">B</span> / <span class="kbd">N</span> van al fotograma guardado anterior o siguiente.</p>
+  </section>
+
+  <section class="sec" id="sec-frames">
+    <h1 class="sec-title"><span>2</span>Fotogramas guardados</h1>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0" data-icon="list"><span id="frameCount">Ningún fotograma guardado</span></h2>
+        <button class="btn danger" id="clearAll" data-icon="trash">Borrar todos</button>
+      </div>
+      <div class="frames" id="frames"></div>
+    </div>
+  </section>
+
+  <section class="sec" id="sec-ayuda">
+    <details class="card help-details"><summary>Ayuda, privacidad y licencias</summary><div id="helpBox"></div></details>
+  </section>
+</main>
+<button class="to-top" id="toTop" data-icon="arrowUp" title="Subir al inicio" aria-label="Subir al inicio de la página" hidden></button>
+<footer class="foot">
+  <p><b>Análisis Postural OpenSim</b> · © 2026 Leonardo Lira · Código abierto con <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · <a href="https://github.com/leolira0568/analisis-postural-opensim" target="_blank" rel="noopener">Proyecto en GitHub</a> · Derivado de <a href="https://github.com/leolira0568/owas-web" target="_blank" rel="noopener">OWAS Web</a> · <a href="#privacidad" id="privacyLink">Privacidad y seguridad</a></p>
+  <p>Detección de posturas: MediaPipe Pose © Google LLC, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mediapipe/LICENSE" target="_blank" rel="noopener">licencia Apache 2.0</a> · Modelo Rajagopal 2016 © Stanford University, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/opensim/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · Modelo de cuerpo completo © Ross Wilkinson, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/opensim/LICENSE-wilkinson" target="_blank" rel="noopener">licencia MIT</a> · mp4-muxer © Vanilagy, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mp4-muxer/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · Iconos basados en <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (ISC)</p>
+</footer>
+<input type="file" id="fileOpen" accept=".apo" hidden>
+<input type="file" id="fileVideo" accept="video/*" hidden>
+<dialog id="exportDlg" aria-labelledby="exportTitle">
+  <h2 id="exportTitle">Exportar</h2>
+  <div class="export-opt">
+    <button class="btn primary" id="expVideo" data-icon="film">Video con esqueleto (.mp4)</button>
+    <div>
+      <p class="small muted">Recorre el video fotograma a fotograma, detecta la postura y graba un video nuevo con el esqueleto, los ángulos y los subtítulos, tal como se ven en pantalla. Sin sonido.</p>
+      <div class="opts small">
+        <label><input type="checkbox" id="vidSubs" checked autocomplete="off"> Incluir subtítulos con la postura y los ángulos (franja debajo de la imagen)</label>
+        <label>Tamaño <select id="vidSize"><option value="1920" selected>Como el original (hasta 1920 px)</option><option value="1280">Reducido (hasta 1280 px)</option></select></label>
+      </div>
+    </div>
+  </div>
+  <div class="export-opt">
+    <button class="btn primary" id="expMot" data-icon="body">OpenSim (.mot)</button>
+    <div>
+      <p class="small muted">Calcula en este equipo los ángulos articulares con un modelo de OpenSim, sin instalarlo. Función experimental.</p>
+      <div class="opts small">
+        <label>Posturas <select id="motSrc"><option value="video" selected id="motSrcVideo">Todo el video</option><option value="frames">Solo los fotogramas guardados</option></select></label>
+        <label id="motRateBox">Muestras por segundo <select id="motRate"><option value="0">Todos los fotogramas</option><option value="10" selected>10</option><option value="5">5</option><option value="1">1</option></select></label>
+      </div>
+      <div class="mot-model">
+        <label class="small">Modelo <select id="motModel"><option value="rajagopal2016">Rajagopal 2016 (músculos en las piernas)</option><option value="wilkinson2021" selected>Cuerpo completo (520 músculos)</option></select></label>
+        <button class="btn" id="motOsim" data-icon="body">Descargar modelo</button> <span class="small muted" id="motModelInfo"></span>
+      </div>
+    </div>
+  </div>
+  <div id="motPanel" class="mot-panel" hidden>
+    <p class="small" id="motSummary"></p>
+    <ul class="small" id="motList" hidden></ul>
+    <label class="small"><input type="checkbox" id="motOnlyOk" checked> Excluir del archivo las posturas poco fiables</label>
+    <p class="small muted" id="motHelp"></p>
+    <p class="small muted">La revisión no comprueba las rodillas: sus ángulos no son fiables. Revise el resultado antes de usarlo.</p>
+    <div class="vctrl">
+      <button class="btn primary" id="motSave" data-icon="fileText">Descargar .mot</button>
+      <button class="btn" id="motCsv" data-icon="fileText">Calidad (.csv)</button>
+    </div>
+  </div>
+  <div class="export-opt">
+    <button class="btn" id="expTrc" data-icon="body">Marcadores (.trc)</button>
+    <p class="small muted">Descarga los puntos 3D del cuerpo como marcadores de OpenSim, con las mismas posturas elegidas para el .mot. No incluye imágenes.</p>
+  </div>
+  <div class="job" id="expJob" hidden>
+    <span class="small" id="expJobText"></span>
+    <progress id="expJobBar" max="1" value="0"></progress>
+    <div class="vctrl"><button class="btn" id="expCancel" data-icon="close">Cancelar</button></div>
+  </div>
+  <p class="small export-note">Los videos exportados, las imágenes y los proyectos contienen datos personales de las personas grabadas: guárdelos en un lugar protegido y compártalos solo con quien deba verlos.</p>
+  <p class="small" id="expStatus" role="status"></p>
+  <div class="vctrl"><button class="btn" id="expClose" data-icon="close">Cerrar</button></div>
+</dialog>
+<dialog id="viewer" aria-label="Fotograma guardado">
+  <img id="viewImg" alt="">
+  <div id="viewInfo"></div>
+  <div class="vctrl"><button class="btn" id="viewJump" data-icon="video">Ir a este momento del video</button><button class="btn" id="viewClose" data-icon="close">Cerrar</button></div>
+</dialog>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const VERSION = '1.0';
+
+// ---- Iconos (trazo 24×24) basados en Lucide, https://lucide.dev — licencia ISC, © Lucide Contributors ----
+const ICONS = {
+  new:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M9 15h6"/><path d="M12 18v-6"/>',
+  open:'<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+  join:'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M6 21V9a9 9 0 0 0 9 9"/>',
+  save:'<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
+  saveas:'<path d="M12.5 22H18a2 2 0 0 0 2-2V7l-5-5H6a2 2 0 0 0-2 2v9.5"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M13.4 15.6a1 1 0 1 0-3-3l-5 5a2 2 0 0 0-.5.85l-.84 2.87a.5.5 0 0 0 .62.62l2.87-.84a2 2 0 0 0 .85-.5z"/>',
+  print:'<path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/>',
+  info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',
+  eye:'<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  chart:'<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+  body:'<circle cx="12" cy="5" r="1"/><path d="m9 20 3-6 3 6"/><path d="m6 8 6 2 6-2"/><path d="M12 10v4"/>',
+  list:'<path d="M3 12h.01"/><path d="M3 18h.01"/><path d="M3 6h.01"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M8 6h13"/>',
+  help:'<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
+  layers:'<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
+  plus:'<path d="M5 12h14"/><path d="M12 5v14"/>',
+  play:'<path d="M6 3.9a1 1 0 0 1 1.5-.87l11.5 7.1a1 1 0 0 1 0 1.74L7.5 20.97A1 1 0 0 1 6 20.1z"/>',
+  stop:'<rect x="5" y="5" width="14" height="14" rx="2"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  lock:'<rect width="18" height="11" x="3" y="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+  repeat:'<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+  eraser:'<path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21"/><path d="M22 21H7"/><path d="m5 11 9 9"/>',
+  copy:'<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+  trash:'<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+  close:'<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  arrowUp:'<path d="m5 12 7-7 7 7"/><path d="M12 19V5"/>',
+  history:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+  timer:'<path d="M10 2h4"/><path d="m12 14 3-3"/><circle cx="12" cy="14" r="8"/>',
+  video:'<path d="m16 13 5.22 3.48a.5.5 0 0 0 .78-.42V7.87a.5.5 0 0 0-.75-.43L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/>',
+  image:'<rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/>',
+  pause:'<rect x="14" y="4" width="4" height="16" rx="1"/><rect x="6" y="4" width="4" height="16" rx="1"/>',
+  chevL:'<path d="m15 18-6-6 6-6"/>',
+  chevR:'<path d="m9 18 6-6-6-6"/>',
+  chevsL:'<path d="m11 17-5-5 5-5"/><path d="m18 17-5-5 5-5"/>',
+  chevsR:'<path d="m6 17 5-5-5-5"/><path d="m13 17 5-5-5-5"/>',
+  skipB:'<path d="M19 20 9 12l10-8z"/><path d="M5 19V5"/>',
+  skipF:'<path d="m5 4 10 8-10 8z"/><path d="M19 5v14"/>',
+  download:'<path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/>',
+  fileText:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
+  moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+  sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+  scan:'<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><circle cx="12" cy="7.5" r="1.5"/><path d="M8.5 11h7"/><path d="M12 9.5v4"/><path d="m9.5 17.5 2.5-4 2.5 4"/>'
+};
+ICONS.camera = '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>';
+ICONS.rangeA = '<path d="M10 4H6v16h4"/><path d="M14 12h5"/><path d="m16 9 3 3-3 3"/>';
+ICONS.rangeB = '<path d="M14 4h4v16h-4"/><path d="M10 12H5"/><path d="m8 9-3 3 3 3"/>';
+ICONS.film = '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>';
+document.body.insertAdjacentHTML('afterbegin', '<svg width="0" height="0" style="position:absolute" aria-hidden="true">' +
+  Object.entries(ICONS).map(([k, v]) => `<symbol id="i-${k}" viewBox="0 0 24 24">${v}</symbol>`).join('') + '</svg>');
+const ico = (n, cls = 'ico') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+
+// Posturas que se describen con palabras (las mismas categorías que usa OWAS, sin códigos ni niveles de riesgo)
+const POSTURE = {
+  b: ['Espalda recta', 'Espalda inclinada', 'Espalda girada', 'Espalda inclinada y girada'],
+  a: ['Ambos brazos por debajo del hombro', 'Un brazo por encima del hombro', 'Ambos brazos por encima del hombro'],
+  l: ['Sentado', 'De pie sobre ambas piernas rectas', 'De pie sobre una pierna recta', 'De pie, ambas rodillas flexionadas', 'De pie, una rodilla flexionada', 'Arrodillado', 'Caminando']
+};
+
+// ---- Estado ----
+// frames: fotogramas guardados. track: puntos del cuerpo de cada fotograma del video (análisis o detección en tiempo real)
+// range: tramo del video que se analiza y se exporta ({src, a, b} en segundos); null = todo el video
+const blank = () => ({frames: [], track: null, range: null});
+let S = blank(), fileName = '', fileHandle = null, dirty = false;
+// Autoguardado en IndexedDB (las imágenes y los puntos de todo el video no caben en localStorage)
+const idb = (() => {
+  let p;
+  const open = () => p || (p = new Promise((res, rej) => {
+    const r = indexedDB.open('analisis-postural-opensim', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const run = (mode, fn) => open().then(d => new Promise((res, rej) => {
+    const t = d.transaction('kv', mode), q = fn(t.objectStore('kv'));
+    t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error);
+  }));
+  return {get: k => run('readonly', s => s.get(k)), set: (k, v) => run('readwrite', s => s.put(v, k)), del: k => run('readwrite', s => s.delete(k))};
+})();
+let persistTimer = null, autosaveOn = true;
+try{ autosaveOn = localStorage.getItem('apos.autosave') !== 'off'; }catch(e){}
+function persist(delay = 300){
+  clearTimeout(persistTimer);
+  if (!autosaveOn) return;
+  persistTimer = setTimeout(() => { idb.set('autosave', {S, fileName, dirty}).catch(() => {}); }, delay);
+}
+function changed(){ dirty = true; persist(); renderHeader(); }
+
+// ---- Proyecto .apo: JSON con los fotogramas guardados (con sus imágenes) y los puntos del cuerpo de todo el video ----
+const b64 = buf => { const u = new Uint8Array(buf), parts = []; for (let i = 0; i < u.length; i += 0x8000) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 0x8000))); return btoa(parts.join('')); };
+const unb64 = (s, T) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
+function projectBytes(){
+  const T = S.track;
+  const track = T ? {src: T.src, fps: T.fps, n: T.n, N: b64(T.N.buffer), W: b64(T.W.buffer), ok: b64(T.ok.buffer)} : null;
+  return new TextEncoder().encode(JSON.stringify({format: 'analisis-postural-opensim', version: 1, S: {...S, track}}));
+}
+function parseProject(text){
+  const j = JSON.parse(text);
+  if (j.format !== 'analisis-postural-opensim' || !j.S || !Array.isArray(j.S.frames)) throw new Error('not project');
+  const st = blank(); st.frames = j.S.frames; st.range = j.S.range || null;
+  const T = j.S.track;
+  if (T) st.track = {src: T.src, fps: T.fps, n: T.n, N: unb64(T.N, Float32Array), W: unb64(T.W, Float32Array), ok: unb64(T.ok, Uint8Array)};
+  return st;
+}
+const FILE_TYPE = {description: 'Proyecto de Análisis Postural OpenSim', accept: {'application/json': ['.apo']}};
+function confirmDiscard(){ return !dirty || confirm('¿Desea descartar los cambios sin guardar?'); }
+function loadState(st, name, handle){
+  S = st; fileName = name; fileHandle = handle || null; dirty = false;
+  $('#restored').hidden = true;
+  persist(); clearOverlay(); renderAll();
+  if (vid.src) scheduleAutoDetect();
+}
+async function openFile(){
+  if (!confirmDiscard()) return;
+  let file = null, handle = null;
+  if (window.showOpenFilePicker){
+    try{ [handle] = await showOpenFilePicker({types: [FILE_TYPE]}); file = await handle.getFile(); }
+    catch(e){ if (e.name === 'AbortError') return; }
+  }
+  if (!file) file = await new Promise(res => { const el = $('#fileOpen'); el.value = ''; el.onchange = () => res(el.files[0] || null); el.click(); });
+  if (!file) return;
+  try{ loadState(parseProject(await file.text()), file.name, handle); }
+  catch(e){ alert(`"${file.name}" no es un proyecto de Análisis Postural OpenSim.`); return; }
+  const src = S.track ? S.track.src : (S.frames[0] || {}).src;
+  if (src && src !== videoName) alert(`Cargue el video «${src}» para ver el esqueleto y los fotogramas guardados sobre él.`);
+}
+async function saveFile(as){
+  const name = fileName || (videoBase() || 'analisis') + '.apo';
+  try{
+    if (!as && fileHandle){
+      const w = await fileHandle.createWritable(); await w.write(projectBytes()); await w.close();
+    } else if (window.showSaveFilePicker){
+      const h = await showSaveFilePicker({suggestedName: name, types: [FILE_TYPE]});
+      const w = await h.createWritable(); await w.write(projectBytes()); await w.close();
+      fileHandle = h; fileName = h.name;
+    } else throw new Error('no fs api');
+  }catch(e){
+    if (e.name === 'AbortError') return;
+    let n = name;
+    if (as || !fileName){ n = prompt('Nombre del archivo:', name); if (!n) return; if (!/\.apo$/i.test(n)) n += '.apo'; }
+    downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), n);
+    fileName = n;
+  }
+  dirty = false; persist(); renderHeader();
+}
+function newFile(){ if (!confirmDiscard()) return; loadState(blank(), '', null); }
+function renderHeader(){
+  $('#fname').textContent = fileName ? '— ' + fileName : '— (sin nombre)';
+  $('#dirty').textContent = dirty ? '●' : '';
+  $('#dirty').title = dirty ? 'Cambios sin guardar' : '';
+}
+
+// ---- Video ----
+const vid = $('#vid');
+let videoName = '';
+const videoBase = () => videoName.replace(/\.[^.]+$/, '');
+const fps = () => Math.min(240, Math.max(1, parseFloat($('#vFps').value) || 30));
+const fmtTime = t => { t = Math.max(0, t || 0); const m = Math.floor(t / 60), s = t - m * 60; return `${pad(m)}:${s.toFixed(2).padStart(5, '0')}`; };
+function setVideoTime(t){ vid.pause(); vid.currentTime = Math.min(Math.max(0, t), vid.duration || 0); }
+function seekBy(dt){ if (vid.src && !job) setVideoTime(vid.currentTime + dt); }
+function togglePlay(){ if (!vid.src || job) return; vid.paused ? vid.play() : vid.pause(); }
+function renderVideoUI(){
+  const d = vid.duration || 0;
+  $('#vTime').textContent = `${fmtTime(vid.currentTime)} / ${fmtTime(d)}`;
+  $('#seek').max = d; $('#seek').value = vid.currentTime;
+  const playing = !vid.paused;
+  $('#vPlay').innerHTML = ico(playing ? 'pause' : 'play');
+  $('#vPlay').setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
+}
+// Fotogramas guardados de este video, en una fila debajo de la barra de tiempo
+const videoFrames = () => S.frames.map((f, i) => [f, i]).filter(([f]) => f.src === videoName).sort((x, y) => x[0].t - y[0].t);
+function renderMarks(){
+  const d = vid.duration, box = $('#marks'), items = d ? videoFrames() : [];
+  box.innerHTML = items.map(([f, i]) => `<button style="left:${f.t / d * 100}%" data-go="${i}" title="Fotograma ${i + 1} · ${fmtTime(f.t)}${f.note ? ' · ' + esc(f.note) : ''}" aria-label="Ir al fotograma guardado ${i + 1}"><b>${i + 1}</b></button>`).join('');
+  box.style.height = items.length ? '26px' : '0';
+}
+function gotoSaved(dir){
+  const t = vid.currentTime, list = videoFrames().map(([f]) => f.t);
+  const k = dir > 0 ? list.find(x => x > t + 1e-3) : [...list].reverse().find(x => x < t - 1e-3);
+  if (k != null) setVideoTime(k);
+}
+$('#marks').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) goToFrame(+b.dataset.go); });
+$('#loadVideo').onclick = () => { if (job) return; const f = $('#fileVideo'); f.value = ''; f.click(); };
+$('#fileVideo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  // Un proyecto abierto pertenece a un video: si el archivo se llama distinto, se puede usar igualmente
+  const src = S.track ? S.track.src : (S.frames[0] || {}).src;
+  if (src && src !== f.name && confirm(`El proyecto abierto es del video «${src}». ¿Usar «${f.name}» como ese video?\n\nAceptar: los fotogramas guardados y el análisis pasan a este video.\nCancelar: se carga el video sin relacionarlo con el proyecto.`)){
+    S.frames.forEach(fr => { if (fr.src === src) fr.src = f.name; });
+    if (S.track) S.track.src = f.name;
+    if (S.range) S.range.src = f.name;
+    changed();
+  }
+  if (vid.src) URL.revokeObjectURL(vid.src);
+  videoName = f.name; vid.src = URL.createObjectURL(f);
+  $('#videoName').textContent = f.name; $('#vidEmpty').hidden = true; $('#loadVideo').classList.remove('load');
+  clearOverlay(); lastDet = null;
+};
+vid.addEventListener('loadedmetadata', () => { renderVideoUI(); renderMarks(); renderRange(); });
+['timeupdate', 'seeked', 'play', 'pause'].forEach(ev => vid.addEventListener(ev, renderVideoUI));
+vid.addEventListener('error', () => {
+  if (!vid.getAttribute('src')) return;
+  alert('El navegador no puede reproducir este video. Use un archivo MP4 (H.264) o WebM.');
+  vid.removeAttribute('src'); videoName = ''; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load');
+});
+vid.addEventListener('click', togglePlay);
+$('#seek').addEventListener('input', e => { if (!job) setVideoTime(+e.target.value); });
+$('#vPlay').onclick = togglePlay;
+$('#vBackF').onclick = () => seekBy(-1 / fps()); $('#vFwdF').onclick = () => seekBy(1 / fps());
+$('#vBack1').onclick = () => seekBy(-1); $('#vFwd1').onclick = () => seekBy(1);
+$('#vPrevS').onclick = () => gotoSaved(-1); $('#vNextS').onclick = () => gotoSaved(1);
+$('#vRate').onchange = e => { vid.playbackRate = +e.target.value; };
+// Los fotogramas por segundo marcan cómo se recorre el video al analizarlo y exportarlo
+let fpsPrev = fps();
+$('#vFps').addEventListener('change', () => {
+  const T = S.track;
+  if (T && T.src === videoName && T.fps !== fps() && T.ok.some(v => v) && !confirm(`El video está analizado a ${T.fps} fotogramas/s. Si cambia el valor, se descarta ese análisis (los fotogramas guardados se conservan). ¿Continuar?`)){
+    $('#vFps').value = fpsPrev; return;
+  }
+  fpsPrev = fps(); renderRange();
+});
+
+// ---- Tramo del video que se analiza y se exporta ----
+const round3 = v => Math.round(v * 1000) / 1000;
+function getRange(){
+  const d = vid.duration || 0, r = S.range && S.range.src === videoName ? S.range : null;
+  if (!r || !d) return {a: 0, b: d, all: true};
+  const a = Math.min(Math.max(0, r.a), d), b = Math.min(Math.max(0, r.b), d);
+  return b - a >= 1 / fps() ? {a, b, all: false} : {a: 0, b: d, all: true};
+}
+// Fotogramas del análisis que caen dentro del tramo
+function rangeIdx(T){
+  const {a, b} = getRange();
+  const i0 = Math.min(T.n - 1, Math.max(0, Math.floor(a * T.fps + 1e-3)));
+  const i1 = Math.max(i0, Math.min(T.n - 1, Math.ceil(b * T.fps - 1e-3) - 1));
+  const out = []; for (let i = i0; i <= i1; i++) out.push(i);
+  return out;
+}
+function setRange(which){
+  if (!vid.src || !vid.duration || job) return;
+  const d = vid.duration, t = vid.currentTime;
+  let {a, b} = getRange();
+  if (which === 'a') a = t; else b = t;
+  // Si el inicio queda después del fin (o al revés), el otro extremo vuelve al final (o al principio) del video
+  if (b - a < 1 / fps()){ if (which === 'a') b = d; else a = 0; }
+  S.range = a <= 1e-3 && b >= d - 1e-3 ? null : {src: videoName, a: round3(a), b: round3(b)};
+  changed(); renderRange();
+}
+function renderRange(){
+  const d = vid.duration || 0, r = getRange(), on = !!vid.src && !!d && !r.all;
+  const band = $('#rangeBand');
+  band.hidden = !on;
+  if (on){ band.style.left = `calc(8px + (100% - 16px) * ${r.a / d})`; band.style.width = `calc((100% - 16px) * ${(r.b - r.a) / d})`; }
+  $('#rangeText').textContent = !vid.src ? '—' : r.all ? 'Todo el video' : `${fmtTime(r.a)} – ${fmtTime(r.b)} (${(r.b - r.a).toFixed(1)} s)`;
+  $('#analyzeBtn').innerHTML = ico('film') + (r.all ? 'Analizar todo el video' : 'Analizar el tramo');
+  $('#motSrcVideo').textContent = r.all ? 'Todo el video' : `El tramo elegido (${fmtTime(r.a)} – ${fmtTime(r.b)})`;
+  renderTrackInfo();
+}
+$('#rangeA').onclick = () => setRange('a');
+$('#rangeB').onclick = () => setRange('b');
+$('#rangeAll').onclick = () => { if (job) return; S.range = null; changed(); renderRange(); };
+
+// ---- Puntos del cuerpo de cada fotograma (análisis del video) ----
+const NP = 33;
+const frameCount = () => Math.max(1, Math.floor((vid.duration || 0) * fps() + 1e-6));
+const frameIdx = (t, T) => Math.min(T.n - 1, Math.max(0, Math.floor(t * T.fps + 1e-3)));
+const frameTime = (i, T) => Math.min((i + 0.5) / T.fps, Math.max(0, (vid.duration || 0) - 1e-3));
+function trackFor(){
+  const T = S.track;
+  return T && vid.src && T.src === videoName && T.fps === fps() ? T : null;
+}
+function ensureTrack(){
+  let T = trackFor();
+  if (!T){
+    const n = frameCount();
+    T = S.track = {src: videoName, fps: fps(), n, N: new Float32Array(n * NP * 4), W: new Float32Array(n * NP * 3), ok: new Uint8Array(n)};
+  }
+  return T;
+}
+// ok: 0 sin analizar, 1 persona detectada, 2 analizado sin persona
+function setTrack(T, i, N, W){
+  if (!N){ T.ok[i] = 2; return; }
+  for (let j = 0; j < NP; j++){
+    T.N.set([N[j].x, N[j].y, N[j].z, N[j].visibility ?? 1], (i * NP + j) * 4);
+    T.W.set([W[j].x, W[j].y, W[j].z], (i * NP + j) * 3);
+  }
+  T.ok[i] = 1;
+}
+function getTrack(T, i){
+  if (!T || i < 0 || i >= T.n || T.ok[i] !== 1) return null;
+  const N = [], W = [];
+  for (let j = 0; j < NP; j++){
+    const a = (i * NP + j) * 4, b = (i * NP + j) * 3;
+    N.push({x: T.N[a], y: T.N[a + 1], z: T.N[a + 2], visibility: T.N[a + 3]});
+    W.push({x: T.W[b], y: T.W[b + 1], z: T.W[b + 2]});
+  }
+  return {N, W};
+}
+// Postura del fotograma i del análisis; «caminando» compara con el fotograma de 0,5 s antes
+function detFromTrack(T, i){
+  const p = getTrack(T, i); if (!p) return null;
+  const k = Math.max(1, Math.round(0.5 * T.fps)), prev = getTrack(T, i - k) || getTrack(T, i + k);
+  return makeDet(p.N, p.W, prev && prev.N);
+}
+function renderTrackInfo(){
+  const T = trackFor(), all = getRange().all, idx = T ? rangeIdx(T) : [];
+  const done = idx.reduce((t, i) => t + (T.ok[i] ? 1 : 0), 0), what = all ? 'Video' : 'Tramo';
+  $('#trackInfo').textContent = !vid.src ? '' : !T || !done ? `${what} sin analizar.` : done >= idx.length ? `${what} analizado (${idx.length} fotogramas a ${T.fps} fotogramas/s).` : `Analizados ${done} de ${idx.length} fotogramas${all ? '' : ' del tramo'}.`;
+  $('#analyzeBtn').disabled = !vid.src || !!job;
+  for (const id of ['#rangeA', '#rangeB']) $(id).disabled = !vid.src || !!job;
+  $('#rangeAll').disabled = !vid.src || !!job || all;
+}
+
+// ---- Detección de posturas con MediaPipe Pose ----
+// MediaPipe (Apache 2.0, © Google LLC) va incrustado en base64 al final del archivo; build.py lo inserta.
+const POSE = {img: null, vid: null, loading: null, delegate: null};
+const pageParsed = new Promise(res => document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', res) : res());
+async function embedded(id, file, dir = 'mediapipe'){
+  await pageParsed;
+  const txt = document.getElementById(id).textContent.trim();
+  // Sin compilar (src/AnalisisPosturalOpenSim.html servido por HTTP): se leen los archivos de vendor/
+  if (txt.startsWith('@@')) return new Uint8Array(await (await fetch(`../vendor/${dir}/${file}`)).arrayBuffer());
+  const bin = atob(txt), out = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+function loadPose(){
+  return POSE.loading || (POSE.loading = (async () => {
+    const [bundle, loader, wasm, model] = await Promise.all([
+      embedded('mp-bundle', 'vision_bundle.mjs'), embedded('mp-loader', 'vision_wasm_internal.js'),
+      embedded('mp-wasm', 'vision_wasm_internal.wasm'), embedded('mp-model', 'pose_landmarker_full.task')]);
+    const blobUrl = (bytes, type) => URL.createObjectURL(new Blob([bytes], {type}));
+    const vision = await import(blobUrl(bundle, 'text/javascript'));
+    const fileset = {wasmLoaderPath: blobUrl(loader, 'text/javascript'), wasmBinaryPath: blobUrl(wasm, 'application/wasm')};
+    // Dos detectores: uno para imágenes sueltas (video en pausa) y otro que sigue a la persona de un fotograma al siguiente.
+    // Con la tarjeta gráfica (WebGL) es unas seis veces más rápido que con el procesador; si no está disponible, se usa el procesador
+    const make = async runningMode => {
+      const opts = delegate => ({baseOptions: {modelAssetBuffer: model.slice(), delegate}, runningMode, numPoses: 1,
+        minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5});
+      if (POSE.delegate !== 'CPU'){
+        try{ const lm = await vision.PoseLandmarker.createFromOptions(fileset, opts('GPU')); POSE.delegate = 'GPU'; return lm; }
+        catch(e){ console.warn('Detector en la tarjeta gráfica no disponible; se usa el procesador.', e); }
+      }
+      POSE.delegate = 'CPU';
+      return vision.PoseLandmarker.createFromOptions(fileset, opts('CPU'));
+    };
+    POSE.img = await make('IMAGE');
+    POSE.vid = await make('VIDEO');
+    return POSE;
+  })().catch(e => { POSE.loading = null; throw e; }));
+}
+// El detector de video exige tiempos crecientes, aunque el video se rebobine
+let poseClock = 0;
+const nextTs = (dt = 1) => (poseClock += Math.max(1, dt));
+
+// Umbrales ajustables (se recuerdan en este navegador)
+const STYLE_DEFAULT = {skelColor: '#7fd1ff', skelWidth: 3, angColor: '#ffd54a', angSize: 12, arcColor: '#4cd964', arcSize: 15};
+const CFG_DEFAULT = {trunk: 20, twist: 20, knee: 150, lift: 10, walk: true, walkDist: 25, avg3: true, blurBlocks: 5, ...STYLE_DEFAULT};
+let CFG = {...CFG_DEFAULT};
+try{ Object.assign(CFG, JSON.parse(localStorage.getItem('apos.detect') || '{}')); }catch(e){}
+const showCfg = () => $$('[data-cfg]').forEach(el => { const k = el.dataset.cfg; if (el.type === 'checkbox') el.checked = !!CFG[k]; else el.value = CFG[k]; });
+const saveCfg = () => { try{ localStorage.setItem('apos.detect', JSON.stringify(CFG)); }catch(err){} };
+// Un cambio de color o tamaño se ve al instante en el esqueleto de la pantalla
+const redrawSkeleton = () => { if (lastDet && lastDet.key === mediaKey()) renderOverlay(lastDet); };
+showCfg();
+document.addEventListener('change', e => {
+  const el = e.target, k = el.dataset && el.dataset.cfg; if (!k) return;
+  if (el.type === 'checkbox') CFG[k] = el.checked;
+  else if (el.type === 'color') CFG[k] = /^#[0-9a-f]{6}$/i.test(el.value) ? el.value : CFG_DEFAULT[k];
+  else {
+    const v = parseFloat(el.value);
+    CFG[k] = Number.isFinite(v) ? Math.min(Math.max(v, +el.min || -Infinity), +el.max || Infinity) : CFG_DEFAULT[k];
+    el.value = CFG[k];
+  }
+  saveCfg();
+  if (k in STYLE_DEFAULT) redrawSkeleton();
+});
+$('#styleReset').onclick = () => { Object.assign(CFG, STYLE_DEFAULT); showCfg(); saveCfg(); redrawSkeleton(); };
+const rgba = (hex, a) => { const n = parseInt(hex.slice(1), 16); return `rgba(${n >> 16},${n >> 8 & 255},${n & 255},${a})`; };
+
+// Geometría 3D sobre los puntos «world» de MediaPipe (metros, origen entre las caderas)
+const V = {
+  sub: (p, q) => [p.x - q.x, p.y - q.y, p.z - q.z],
+  mid: (p, q) => ({x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2}),
+  dot: (u, v) => u[0]*v[0] + u[1]*v[1] + u[2]*v[2],
+  len: u => Math.hypot(u[0], u[1], u[2]),
+  rej: (u, n) => { const k = V.dot(u, n); return [u[0] - k*n[0], u[1] - k*n[1], u[2] - k*n[2]]; },
+  unit: u => { const l = V.len(u) || 1; return [u[0]/l, u[1]/l, u[2]/l]; },
+  ang: (u, v) => Math.acos(Math.max(-1, Math.min(1, V.dot(u, v) / ((V.len(u) * V.len(v)) || 1)))) * 180 / Math.PI
+};
+// Índices de MediaPipe Pose
+const P = {sh:[11,12], el:[13,14], wr:[15,16], hip:[23,24], knee:[25,26], ank:[27,28], heel:[29,30], toe:[31,32]};
+const BONES = [[11,12],[11,13],[13,15],[12,14],[14,16],[11,23],[12,24],[23,24],[23,25],[25,27],[27,29],[29,31],[27,31],[24,26],[26,28],[28,30],[30,32],[28,32]];
+
+// Convierte los puntos del cuerpo en la postura de espalda, brazos y piernas
+function classifyPosture(W, N){
+  const warn = [], m = {};
+  const vis = i => N[i].visibility ?? 1;
+  // Sentido vertical: en la imagen la «y» crece hacia abajo; se comprueba que los puntos 3D coinciden
+  const s = Math.sign((N[23].y + N[24].y) - (N[11].y + N[12].y)) === Math.sign((W[23].y + W[24].y) - (W[11].y + W[12].y)) ? 1 : -1;
+  const up = [0, -s, 0], h = p => V.dot([p.x, p.y, p.z], up);
+  const S2 = V.mid(W[11], W[12]), H2 = V.mid(W[23], W[24]);
+  const trunk = V.sub(S2, H2), hipLine = V.unit(V.sub(W[24], W[23])), shLine = V.sub(W[12], W[11]);
+  if ([11,12,23,24].some(i => vis(i) < 0.5)) warn.push({k: 'b', t: 'Espalda poco visible: revise el código de la espalda.'});
+
+  // Espalda: flexión en el plano sagital, inclinación lateral y giro de hombros respecto a caderas
+  m.trunk = V.ang(V.rej(trunk, hipLine), up);
+  m.side = Math.abs(90 - V.ang(trunk, hipLine));
+  m.twist = V.ang(V.rej(shLine, up), V.rej(V.sub(W[24], W[23]), up));
+  const bent = m.trunk >= CFG.trunk, twisted = m.twist >= CFG.twist || m.side >= CFG.twist;
+  const b = bent ? (twisted ? 4 : 2) : (twisted ? 3 : 1);
+
+  // Brazos: cuántos codos o muñecas quedan por encima de su hombro
+  if ([13,14,15,16].some(i => vis(i) < 0.4)) warn.push({k: 'a', t: 'Brazos poco visibles: revise el código de los brazos.'});
+  m.armsUp = [0, 1].filter(k => vis(P.sh[k]) >= 0.3 && Math.max(h(W[P.el[k]]), h(W[P.wr[k]])) > h(W[P.sh[k]])).length;
+  const a = 1 + m.armsUp;
+
+  // Piernas
+  let l = 0;
+  const legVis = [...P.knee, ...P.ank].every(i => vis(i) >= 0.4);
+  if (!legVis) warn.push({k: 'l', t: 'Piernas no visibles: elija el código de las piernas.'});
+  else {
+    const knee = k => V.ang(V.sub(W[P.hip[k]], W[P.knee[k]]), V.sub(W[P.ank[k]], W[P.knee[k]]));
+    m.kneeL = knee(0); m.kneeR = knee(1);
+    const legLen = [0, 1].map(k => V.len(V.sub(W[P.hip[k]], W[P.knee[k]])) + V.len(V.sub(W[P.knee[k]], W[P.ank[k]]))).reduce((x, y) => x + y) / 2;
+    const foot = k => Math.min(h(W[P.ank[k]]), h(W[P.heel[k]]), h(W[P.toe[k]]));
+    const ground = Math.min(foot(0), foot(1));
+    const thigh = k => V.ang(V.sub(W[P.knee[k]], W[P.hip[k]]), up.map(c => -c));
+    const kneeLow = [0, 1].map(k => h(W[P.knee[k]]) - ground < 0.15 * legLen);
+    const lifted = Math.abs(foot(0) - foot(1)) / legLen * 100;
+    m.lift = lifted;
+    if (kneeLow[0] || kneeLow[1]) l = 6;                                            // arrodillado
+    else if (thigh(0) > 55 && thigh(1) > 55 && Math.min(m.kneeL, m.kneeR) > 60
+             && h(H2) - ground < 0.75 * legLen) l = 1;                               // sentado
+    else if (lifted >= CFG.lift){                                                    // apoyado en una pierna
+      const support = foot(0) < foot(1) ? 0 : 1;
+      l = (support ? m.kneeR : m.kneeL) >= CFG.knee ? 3 : 5;
+    } else l = Math.min(m.kneeL, m.kneeR) < CFG.knee ? 4 : 2;                       // de pie sobre ambas
+  }
+  return {b, a, l, m, warn};
+}
+// Desplazamiento de la cadera entre dos fotogramas, en % de la longitud del tronco (para «caminando»)
+function hipShift(N, N2){
+  const hip = n => [(n[23].x + n[24].x) / 2, (n[23].y + n[24].y) / 2];
+  const torso = Math.hypot((N[11].x + N[12].x) / 2 - hip(N)[0], (N[11].y + N[12].y) / 2 - hip(N)[1]) || 1;
+  return Math.hypot(hip(N2)[0] - hip(N)[0], hip(N2)[1] - hip(N)[1]) / torso * 100;
+}
+function makeDet(N, W, Nwalk){
+  const r = classifyPosture(W, N);
+  if (CFG.walk && Nwalk && r.l && r.l !== 1 && r.l !== 6){
+    r.m.walk = hipShift(N, Nwalk);
+    if (r.m.walk >= CFG.walkDist) r.l = 7;
+  }
+  const rd = v => Math.round(v);
+  const m = {trunk: rd(r.m.trunk), twist: rd(r.m.twist), side: rd(r.m.side), armsUp: r.m.armsUp};
+  if (r.m.kneeL != null){ m.kneeL = rd(r.m.kneeL); m.kneeR = rd(r.m.kneeR); }
+  if (r.m.walk != null) m.walk = rd(r.m.walk);
+  return {N, W, m, p: {b: r.b, a: r.a, l: r.l}, warn: r.warn};
+}
+// Texto de los subtítulos: postura de cada parte y los ángulos medidos
+function detLines(det){
+  const {m, p} = det;
+  return [
+    `${POSTURE.b[p.b - 1]} (tronco ${m.trunk}°, giro ${m.twist}°, lateral ${m.side}°)`,
+    `${POSTURE.a[p.a - 1]} · ` + (p.l ? POSTURE.l[p.l - 1] : 'Piernas no visibles') +
+      (m.kneeL != null ? ` (rodillas ${m.kneeL}° / ${m.kneeR}°${m.walk != null ? `, desplazamiento ${m.walk} %` : ''})` : '')
+  ];
+}
+
+// Dibuja el esqueleto en un contexto 2D de tamaño w×h
+function drawSkeleton(g, N, w, h, scale = 1){
+  g.save();
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  const pt = i => [N[i].x * w, N[i].y * h];
+  for (const [i, j] of BONES){
+    if ((N[i].visibility ?? 1) < 0.3 || (N[j].visibility ?? 1) < 0.3) continue;
+    const [x1, y1] = pt(i), [x2, y2] = pt(j);
+    g.strokeStyle = 'rgba(0,0,0,.55)'; g.lineWidth = (CFG.skelWidth + 3) * scale; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+    g.strokeStyle = CFG.skelColor; g.lineWidth = CFG.skelWidth * scale; g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y2); g.stroke();
+  }
+  for (let i = 11; i <= 32; i++){
+    if ((N[i].visibility ?? 1) < 0.3) continue;
+    const [x, y] = pt(i);
+    g.fillStyle = '#ffffff'; g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 1.5 * scale;
+    g.beginPath(); g.arc(x, y, Math.max(3.5, CFG.skelWidth * 1.15) * scale, 0, Math.PI * 2); g.fill(); g.stroke();
+  }
+  g.restore();
+}
+// Ángulos de codos, hombros, caderas y rodillas, medidos en 3D (180° = extendido), y la inclinación del tronco
+const JOINT_ANGLES = [[11,13,15],[12,14,16],[23,11,13],[24,12,14],[11,23,25],[12,24,26],[23,25,27],[24,26,28]];
+function drawAngles(g, det, w, h, scale = 1){
+  const N = det.N, W = det.W, vis = i => (N[i].visibility ?? 1) >= 0.3;
+  if (!W) return;
+  const midX = (N[11].x + N[12].x + N[23].x + N[24].x) / 4 * w;
+  const px = i => [N[i].x * w, N[i].y * h], dir = (p, q) => Math.atan2(q[1] - p[1], q[0] - p[0]);
+  const labels = [], arcs = [];
+  for (const [a, j, c] of JOINT_ANGLES.filter(t => t.every(vis))){
+    const J = px(j);
+    arcs.push({p: J, from: dir(J, px(a)), to: dir(J, px(c))});
+    labels.push({x: J[0], y: J[1], side: J[0] >= midX ? 1 : -1, t: Math.round(V.ang(V.sub(W[a], W[j]), V.sub(W[c], W[j]))) + '°'});
+  }
+  if ([11,12,23,24].every(vis) && det.m && det.m.trunk != null){
+    // Tronco: entre la vertical que sube desde las caderas y la línea de caderas a hombros
+    const H = [(px(23)[0] + px(24)[0]) / 2, (px(23)[1] + px(24)[1]) / 2], Sh = [(px(11)[0] + px(12)[0]) / 2, (px(11)[1] + px(12)[1]) / 2];
+    arcs.push({p: H, from: -Math.PI / 2, to: dir(H, Sh), ref: Math.hypot(Sh[0] - H[0], Sh[1] - H[1]) * 0.7});
+    labels.push({x: midX, y: ((N[11].y + N[12].y) * 0.3 + (N[23].y + N[24].y) * 0.2) * h, side: 0, t: `Tronco ${det.m.trunk}°`});
+  }
+  g.save();
+  // Compás: el arco va de un segmento al otro por el lado del ángulo medido
+  const r = CFG.arcSize * scale;
+  for (const A of arcs){
+    const d = Math.atan2(Math.sin(A.to - A.from), Math.cos(A.to - A.from)), [x, y] = A.p;
+    if (A.ref){
+      g.setLineDash([5 * scale, 4 * scale]); g.strokeStyle = CFG.arcColor; g.lineWidth = 2 * scale;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - A.ref); g.stroke(); g.setLineDash([]);
+    }
+    g.beginPath(); g.moveTo(x, y); g.arc(x, y, r, A.from, A.from + d, d < 0); g.closePath();
+    g.fillStyle = rgba(CFG.arcColor, .3); g.fill();
+    g.beginPath(); g.arc(x, y, r, A.from, A.from + d, d < 0);
+    g.strokeStyle = 'rgba(0,0,0,.6)'; g.lineWidth = 4.5 * scale; g.stroke();
+    g.strokeStyle = CFG.arcColor; g.lineWidth = 2.5 * scale; g.stroke();
+  }
+  const fs = Math.round(CFG.angSize * scale), pad = Math.round(CFG.angSize / 4 * scale), gap = Math.round((CFG.arcSize + 4) * scale);
+  g.font = `bold ${fs}px Arial, Helvetica, sans-serif`; g.textBaseline = 'middle';
+  for (const L of labels){
+    const tw = g.measureText(L.t).width, bw = tw + pad * 2, bh = fs + pad * 2;
+    const x0 = L.side > 0 ? L.x + gap : L.side < 0 ? L.x - gap - bw : L.x - bw / 2, y0 = L.y - bh / 2;
+    g.fillStyle = 'rgba(0,0,0,.72)'; g.fillRect(x0, y0, bw, bh);
+    g.fillStyle = CFG.angColor; g.fillText(L.t, x0 + pad, L.y);
+  }
+  g.restore();
+}
+function faceBox(N, w, h){
+  const pts = [0,1,2,3,4,5,6,7,8,9,10].map(i => N[i]).filter(q => q && (q.visibility ?? 1) > 0.2);
+  if (!pts.length) return null;
+  const xs = pts.map(q => q.x * w), ys = pts.map(q => q.y * h);
+  const x1 = Math.min(...xs), x2 = Math.max(...xs), y1 = Math.min(...ys), y2 = Math.max(...ys);
+  // Los puntos van de las orejas a la boca: se amplía hacia la frente y el mentón
+  const u = Math.max(x2 - x1, (y2 - y1) * 1.4, w * 0.015), cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 - u * 0.1;
+  const x0 = Math.max(0, Math.round(cx - u * 0.625)), y0 = Math.max(0, Math.round(cy - u * 0.725));
+  return {x0, y0, bw: Math.min(w - x0, Math.round(u * 1.25)), bh: Math.min(h - y0, Math.round(u * 1.45))};
+}
+function pixelateFace(g, N, w, h){
+  const box = faceBox(N, w, h);
+  if (!box || box.bw < 4 || box.bh < 4) return;
+  const {x0, y0, bw, bh} = box;
+  // Bloques de ancho según la intensidad (suave 7, media 5, fuerte 3); cada uno toma el color medio de su zona
+  const n = [3, 5, 7].includes(CFG.blurBlocks) ? CFG.blurBlocks : 5;
+  const t = document.createElement('canvas'); t.width = n; t.height = Math.max(2, Math.round(n * bh / bw));
+  const tg = t.getContext('2d'); tg.imageSmoothingEnabled = true; tg.imageSmoothingQuality = 'high';
+  tg.drawImage(g.canvas, x0, y0, bw, bh, 0, 0, t.width, t.height);
+  g.save(); g.imageSmoothingEnabled = false; g.drawImage(t, 0, 0, t.width, t.height, x0, y0, bw, bh); g.restore();
+}
+function layoutSubtitles(lines, w){
+  const fs = Math.max(11, Math.round(w / 48)), pad = Math.round(fs * 0.6), lh = Math.round(fs * 1.35);
+  const g = document.createElement('canvas').getContext('2d');
+  g.font = `${fs}px Arial, Helvetica, sans-serif`;
+  const rows = [];
+  for (const line of lines){
+    let cur = '';
+    for (const word of line.split(' ')){
+      const t = cur ? cur + ' ' + word : word;
+      if (g.measureText(t).width > w - pad * 2 && cur){ rows.push(cur); cur = word; } else cur = t;
+    }
+    rows.push(cur);
+  }
+  return {rows, fs, pad, lh, height: rows.length * lh + pad * 2};
+}
+function drawSubtitles(g, sub, w, top){
+  g.save();
+  g.fillStyle = '#141414'; g.fillRect(0, top, w, sub.height);
+  g.font = `${sub.fs}px Arial, Helvetica, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillStyle = '#fff';
+  sub.rows.forEach((r, i) => g.fillText(r, w / 2, top + sub.pad + sub.lh * (i + 0.5)));
+  g.restore();
+}
+// Subtítulos en una franja de alto fijo (para el video): el texto se reduce si no cabe en tres renglones
+function fixedSubtitles(lines, w){
+  const rowsMax = 3, base = Math.max(11, Math.round(w / 48));
+  let sub = layoutSubtitles(lines, w);
+  for (let k = 1; sub.rows.length > rowsMax && k < 8; k++){
+    const fs = Math.round(base * (1 - k * 0.08)), g = document.createElement('canvas').getContext('2d'), rows = [];
+    g.font = `${fs}px Arial, Helvetica, sans-serif`;
+    for (const line of lines){ let cur = ''; for (const word of line.split(' ')){ const t = cur ? cur + ' ' + word : word; if (g.measureText(t).width > w - sub.pad * 2 && cur){ rows.push(cur); cur = word; } else cur = t; } rows.push(cur); }
+    sub = {...sub, rows, fs};
+  }
+  sub.height = rowsMax * sub.lh + sub.pad * 2;
+  return sub;
+}
+
+// Dibujo sobre la imagen de la pantalla
+function clearOverlay(){
+  const c = $('#ovVideo'); c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  $('#subsVideo').hidden = true;
+  detWarn = []; renderDetWarn();
+}
+function renderOverlay(det){
+  const c = $('#ovVideo'), stage = vid.parentElement;
+  const r = vid.getBoundingClientRect(), sr = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  c.style.left = (r.left - sr.left) + 'px'; c.style.top = (r.top - sr.top) + 'px';
+  c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (c.width !== w || c.height !== h){ c.width = w; c.height = h; }
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+  const subs = $('#subsVideo');
+  if (!det){ subs.hidden = true; return; }
+  drawSkeleton(g, det.N, c.width, c.height, dpr);
+  if ($('#showAngles').checked) drawAngles(g, det, c.width, c.height, dpr);
+  subs.hidden = !$('#showSubs').checked;
+  subs.innerHTML = detLines(det).map(t => `<div>${esc(t)}</div>`).join('');
+}
+// Clave del fotograma actual, para saber si la detección sigue vigente
+const mediaKey = () => `${videoName}@${vid.currentTime.toFixed(3)}`;
+let lastDet = null, detecting = false, triedKey = '';
+const seekTo = t => new Promise(res => { if (Math.abs(vid.currentTime - t) < 1e-6 && !vid.seeking){ res(); return; } vid.addEventListener('seeked', res, {once: true}); vid.currentTime = t; });
+// Promedio punto a punto de varias detecciones de la misma persona
+function averageLandmarks(sets){
+  return sets[0].map((_, j) => {
+    const pts = sets.map(s => s[j]), n = pts.length, avg = k => pts.reduce((t, q) => t + (q[k] ?? 0), 0) / n;
+    return {x: avg('x'), y: avg('y'), z: avg('z'), visibility: avg('visibility')};
+  });
+}
+
+// Detección del fotograma actual con el video en pausa: usa el análisis si ya existe para ese fotograma
+async function detectPose(force = false){
+  if (detecting || job) return;
+  if (!vid.src || vid.readyState < 2){ setDetectStatus('Cargue primero un video.'); return; }
+  detecting = true; triedKey = mediaKey();
+  try{
+    vid.pause();
+    const T0 = trackFor();
+    const cached = !force && T0 ? detFromTrack(T0, frameIdx(vid.currentTime, T0)) : null;
+    if (cached){ showDet(cached); setDetectStatus(''); return; }
+    if (!POSE.img) setDetectStatus('Preparando el detector de posturas (solo la primera vez, unos segundos)…');
+    await loadPose();
+    setDetectStatus('Detectando…');
+    const key = mediaKey(), res = POSE.img.detect(vid), t0 = vid.currentTime;
+    let N = res.landmarks && res.landmarks[0], W = res.worldLandmarks && res.worldLandmarks[0];
+    const drawN = N;
+    // Se promedian los puntos del fotograma y de sus vecinos a ±0,1 s para atenuar los errores puntuales
+    if (CFG.avg3){
+      const sets = N ? [[N, W]] : [];
+      for (const t of [t0 - 0.1, t0 + 0.1]){
+        if (t < 0 || t > vid.duration) continue;
+        await seekTo(t);
+        const rr = POSE.img.detect(vid);
+        if (rr.landmarks && rr.landmarks.length) sets.push([rr.landmarks[0], rr.worldLandmarks[0]]);
+      }
+      await seekTo(t0);
+      if (sets.length){ N = averageLandmarks(sets.map(x => x[0])); W = averageLandmarks(sets.map(x => x[1])); }
+    }
+    const T = vid.duration ? ensureTrack() : null, i = T ? frameIdx(t0, T) : -1;
+    if (!N){
+      if (T) setTrack(T, i, null);
+      lastDet = null; clearOverlay();
+      setDetectStatus('<span class="warn">No se detectó ninguna persona en este fotograma.</span>'); return;
+    }
+    // Caminando: compara la posición de la cadera con el fotograma de 0,5 s antes (o después, al principio del video)
+    let Nw = null;
+    if (CFG.walk && T){
+      const k = Math.max(1, Math.round(0.5 * T.fps)), stored = getTrack(T, i - k);
+      if (stored) Nw = stored.N;
+      else {
+        const t1 = t0 >= 0.5 ? t0 - 0.5 : t0 + 0.5 <= vid.duration ? t0 + 0.5 : null;
+        if (t1 != null){ await seekTo(t1); const r2 = POSE.img.detect(vid); await seekTo(t0); if (r2.landmarks && r2.landmarks.length) Nw = r2.landmarks[0]; }
+      }
+    }
+    if (T) setTrack(T, i, N, W);
+    const det = makeDet(N, W, Nw); det.N = drawN || N;
+    showDet(det, key);
+    setDetectStatus('');
+    persist(2000);
+    renderTrackInfo();
+  }catch(e){
+    console.error(e);
+    setDetectStatus('<span class="warn">No se pudo usar el detector de posturas en este navegador.</span>');
+  }finally{
+    detecting = false;
+    if (vid.paused && mediaKey() !== triedKey) scheduleAutoDetect();
+  }
+}
+function showDet(det, key = mediaKey()){
+  lastDet = det ? {...det, key} : null;
+  renderOverlay(det);
+  detWarn = det ? det.warn : []; renderDetWarn();
+  renderDup();
+}
+function setDetectStatus(html){ $('#detectStatus').innerHTML = html; }
+let detWarn = [];
+function renderDetWarn(){ $('#detWarn').innerHTML = detWarn.map(w => `<span class="warn">Atención: ${esc(w.t.replace(/: (revise|elija) .*$/, '.'))}</span>`).join(''); }
+$('#detectBtn').onclick = () => detectPose(true);
+
+// Tiempo real: al reproducir, se dibuja el esqueleto de cada fotograma que se muestra. Si el fotograma ya está
+// analizado se usan sus puntos; si no, se detecta (si el equipo no llega a tiempo, se salta algún fotograma)
+let liveBusy = false;
+function liveFrame(t){
+  const T = vid.duration ? ensureTrack() : null; if (!T) return;
+  const i = frameIdx(t, T);
+  if (T.ok[i] === 1){ showDet(detFromTrack(T, i)); return; }
+  if (!POSE.vid){ loadPose().catch(() => {}); return; }
+  if (liveBusy) return;
+  liveBusy = true;
+  try{
+    const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+    const N = res.landmarks && res.landmarks[0], W = res.worldLandmarks && res.worldLandmarks[0];
+    setTrack(T, i, N || null, W);
+    showDet(N ? detFromTrack(T, i) : null);
+    liveDirty = true;
+  }catch(e){ console.error(e); }
+  finally{ liveBusy = false; }
+}
+let liveDirty = false;
+// Un temporizador corto (y no requestAnimationFrame ni requestVideoFrameCallback) sigue funcionando aunque el video no esté a la vista
+let liveT = -1;
+function liveLoop(){
+  if (vid.paused || vid.ended || job) return;
+  if ($('#realtime').checked && vid.currentTime !== liveT){ liveT = vid.currentTime; liveFrame(liveT); }
+  setTimeout(liveLoop, 8);
+}
+vid.addEventListener('play', () => {
+  clearOverlay(); setDetectStatus('');
+  if ($('#realtime').checked && !POSE.vid) loadPose().catch(() => {});
+  liveT = -1; setTimeout(liveLoop, 8);
+});
+vid.addEventListener('pause', () => { if (liveDirty){ liveDirty = false; persist(2000); renderTrackInfo(); } });
+// La detección deja de valer al cambiar de fotograma
+vid.addEventListener('seeking', () => { if (!detecting && !job && vid.paused){ clearOverlay(); lastDet = null; } });
+vid.addEventListener('seeked', () => { if (!detecting && !job) renderDup(); });
+// Con el video en pausa, detecta al llegar a cada fotograma; espera un instante para no detectar en cada paso al avanzar rápido
+let autoTimer = null;
+function scheduleAutoDetect(){
+  if (!$('#realtime').checked || !vid.src || detecting || job) return;
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => { if (vid.paused && !vid.seeking && !detecting && !job) detectPose(); }, 250);
+}
+vid.addEventListener('seeked', () => { if (vid.paused && !detecting && !job) scheduleAutoDetect(); });
+vid.addEventListener('pause', () => { if (!detecting && !vid.seeking && !job) scheduleAutoDetect(); });
+vid.addEventListener('loadeddata', () => { if ($('#realtime').checked && !detecting && !job) detectPose(); });
+window.addEventListener('resize', () => { if (lastDet && lastDet.key === mediaKey()) renderOverlay(lastDet); renderMarks(); });
+for (const id of ['#showSubs', '#showAngles']) $(id).addEventListener('change', () => { if (lastDet && lastDet.key === mediaKey()) renderOverlay(lastDet); });
+
+// ---- Fotogramas guardados ----
+// Imagen del fotograma actual, reducida para que el proyecto no pese demasiado, con el rostro pixelado y el esqueleto
+function grabFrame(det){
+  const w0 = vid.videoWidth, h0 = vid.videoHeight;
+  if (!w0 || !h0) return null;
+  const k = Math.min(1, 800 / Math.max(w0, h0)), c = document.createElement('canvas');
+  const w = Math.round(w0 * k), h = Math.round(h0 * k), bake = det && $('#bakeSkel').checked;
+  const sub = bake ? layoutSubtitles(detLines(det), w) : null;
+  c.width = w; c.height = h + (sub ? sub.height : 0);
+  const g = c.getContext('2d');
+  g.drawImage(vid, 0, 0, w, h);
+  if (det && $('#blurFace').checked) pixelateFace(g, det.N, w, h);
+  if (bake){
+    drawSkeleton(g, det.N, w, h, w / 640);
+    if ($('#showAngles').checked) drawAngles(g, det, w, h, w / 640);
+    drawSubtitles(g, sub, w, h);
+  }
+  try{ return c.toDataURL('image/jpeg', 0.8); }catch(e){ return null; }
+}
+const savedIndex = () => vid.src ? S.frames.findIndex(f => f.src === videoName && Math.abs(f.t - vid.currentTime) < 0.5 / fps()) : -1;
+function renderDup(){
+  const i = savedIndex();
+  $('#dupWarn').hidden = i < 0;
+  if (i >= 0) $('#dupWarn').innerHTML = `<span class="warn-soft">${ico('check')}Este fotograma ya está guardado (fotograma ${i + 1}).</span>`;
+  $('#saveFrame').disabled = !vid.src || i >= 0 || !!job;
+}
+function saveFrame(){
+  if (!vid.src || vid.readyState < 2 || savedIndex() >= 0 || job) return;
+  vid.pause();
+  const det = lastDet && lastDet.key === mediaKey() ? lastDet : null;
+  const img = grabFrame(det); if (!img) return;
+  const mm = v => Math.round(v * 1000) / 1000;
+  const f = {t: Math.round(vid.currentTime * 1000) / 1000, src: videoName, img, note: $('#frameNote').value.trim()};
+  if (det) Object.assign(f, {m: det.m, p: det.p, w3: det.W.map(q => [mm(q.x), mm(q.y), mm(q.z)])});
+  S.frames.push(f);
+  $('#frameNote').value = '';
+  changed(); renderFrames(); renderMarks(); renderDup();
+  const b = $('#saveFrame');
+  b.innerHTML = ico('check') + 'Fotograma guardado'; $('#saveLive').textContent = 'Fotograma guardado';
+  setTimeout(() => { b.innerHTML = ico('camera') + 'Guardar fotograma <span class="kbd">Enter</span>'; $('#saveLive').textContent = ''; }, 1500);
+}
+$('#saveFrame').onclick = saveFrame;
+const frameDesc = f => f.m && f.p ? detLines(f).join(' · ') : 'Sin postura detectada';
+function renderFrames(){
+  const n = S.frames.length;
+  $('#frameCount').textContent = n ? (n === 1 ? '1 fotograma guardado' : `${n} fotogramas guardados`) : 'Ningún fotograma guardado';
+  $('#clearAll').disabled = !n;
+  $('#frames').innerHTML = n ? S.frames.map((f, i) => `<figure>
+    <button data-view="${i}" title="Ver en grande" aria-label="Ver el fotograma ${i + 1} en grande"><img src="${f.img}" alt="Fotograma ${i + 1}" loading="lazy"></button>
+    <figcaption>
+      <div class="fhead"><b>Fotograma ${i + 1} · ${fmtTime(f.t)}</b><span class="small muted">${esc(f.src)}</span></div>
+      <div class="fdesc">${esc(frameDesc(f))}</div>
+      <input type="text" data-note="${i}" value="${esc(f.note || '')}" placeholder="Nota" aria-label="Nota del fotograma ${i + 1}">
+      <div class="vctrl"><button class="btn" data-go="${i}" data-icon="video">Ir al video</button><button class="btn danger icon-only" data-del="${i}" title="Eliminar" aria-label="Eliminar el fotograma ${i + 1}">${ico('trash')}</button></div>
+    </figcaption></figure>`).join('') : '<p class="empty" style="grid-column:1/-1">Pause el video en el momento que quiera conservar y pulse «Guardar fotograma».</p>';
+  $$('#frames [data-icon]').forEach(el => { if (!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.icon)); });
+}
+$('#frames').addEventListener('click', e => {
+  const go = e.target.closest('[data-go]'), del = e.target.closest('[data-del]');
+  if (go) goToFrame(+go.dataset.go);
+  if (del && confirm(`¿Eliminar el fotograma ${+del.dataset.del + 1}?`)){ S.frames.splice(+del.dataset.del, 1); changed(); renderFrames(); renderMarks(); renderDup(); }
+});
+$('#frames').addEventListener('input', e => { const k = e.target.dataset.note; if (k != null){ S.frames[+k].note = e.target.value; changed(); } });
+$('#clearAll').onclick = () => { if (S.frames.length && confirm('¿Borrar todos los fotogramas guardados?')){ S.frames = []; changed(); renderFrames(); renderMarks(); renderDup(); } };
+function goToFrame(i){
+  const f = S.frames[i]; if (!f) return;
+  if (f.src === videoName && vid.src && !job){ $('#sec-video').scrollIntoView({behavior: 'smooth', block: 'start'}); setVideoTime(f.t); return; }
+  openViewer(i);
+}
+let viewIdx = -1;
+function openViewer(i){
+  const f = S.frames[i]; if (!f) return;
+  viewIdx = i;
+  $('#viewImg').src = f.img; $('#viewImg').alt = `Fotograma ${i + 1}`;
+  $('#viewInfo').innerHTML = `<p style="margin:0 0 6px"><b>Fotograma ${i + 1} · ${fmtTime(f.t)}</b> <span class="small muted">${esc(f.src)}</span></p><p class="small muted" style="margin:0">${f.m && f.p ? detLines(f).map(esc).join('<br>') : 'Sin postura detectada'}${f.note ? '<br>Nota: ' + esc(f.note) : ''}</p>`;
+  $('#viewJump').hidden = !(f.src === videoName && vid.src);
+  $('#viewer').showModal();
+}
+$('#viewClose').onclick = () => $('#viewer').close();
+$('#viewer').addEventListener('click', e => { if (e.target === $('#viewer')) $('#viewer').close(); });
+$('#viewJump').onclick = () => { const f = S.frames[viewIdx]; $('#viewer').close(); $('#sec-video').scrollIntoView({behavior: 'smooth', block: 'start'}); setVideoTime(f.t); };
+document.addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) openViewer(+b.dataset.view); });
+
+// ---- Recorrido de todo el video, fotograma a fotograma: análisis y video con el esqueleto ----
+let job = null;
+function startJob(box){
+  job = {cancel: false, box};
+  vid.pause(); clearTimeout(autoTimer);
+  $(box.wrap).hidden = false; $(box.bar).value = 0; $(box.text).textContent = '';
+  renderTrackInfo(); renderDup();
+  return job;
+}
+function endJob(){
+  const b = job && job.box; job = null;
+  if (b) $(b.wrap).hidden = true;
+  renderTrackInfo(); renderDup(); persist(500);
+}
+const JOB_MAIN = {wrap: '#jobBox', bar: '#jobBar', text: '#jobText'}, JOB_EXP = {wrap: '#expJob', bar: '#expJobBar', text: '#expJobText'};
+$('#jobCancel').onclick = $('#expCancel').onclick = () => { if (job) job.cancel = true; };
+const yieldUI = () => new Promise(r => setTimeout(r));
+// Detecta los fotogramas que falten (indices: los que se necesitan). Devuelve false si se canceló
+async function analyze(T, indices, box, label){
+  await loadPose();
+  const todo = indices.filter(i => !T.ok[i]);
+  for (let k = 0; k < todo.length; k++){
+    if (job.cancel) return false;
+    const i = todo[k];
+    await seekTo(frameTime(i, T));
+    const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+    setTrack(T, i, res.landmarks && res.landmarks[0], res.worldLandmarks && res.worldLandmarks[0]);
+    if (k % 3 === 0){
+      $(box.bar).value = (k + 1) / todo.length;
+      $(box.text).textContent = `${label}: fotograma ${k + 1} de ${todo.length}…`;
+      if (lastDrawn + 120 < performance.now()){ showDet(detFromTrack(T, i), ''); lastDrawn = performance.now(); }
+      await yieldUI();
+    }
+  }
+  return true;
+}
+let lastDrawn = 0;
+$('#analyzeBtn').onclick = async () => {
+  if (!vid.src || job) return;
+  const T = ensureTrack(), t0 = vid.currentTime;
+  startJob(JOB_MAIN);
+  try{
+    const ok = await analyze(T, rangeIdx(T), JOB_MAIN, 'Analizando');
+    setDetectStatus(ok ? '' : 'Análisis cancelado. Lo analizado se conserva.');
+  }catch(e){ console.error(e); setDetectStatus('<span class="warn">No se pudo analizar el video en este navegador.</span>'); }
+  finally{ endJob(); await seekTo(t0); detectPose(); }
+};
+
+// Video con el esqueleto: cada fotograma se dibuja y se codifica en H.264 (WebCodecs) dentro de un .mp4 (mp4-muxer)
+async function loadMuxer(){
+  if (window.Mp4Muxer) return window.Mp4Muxer;
+  const url = URL.createObjectURL(new Blob([await embedded('mp4-muxer', 'mp4-muxer.js', 'mp4-muxer')], {type: 'text/javascript'}));
+  await new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  return window.Mp4Muxer;
+}
+async function pickCodec(width, height, framerate){
+  for (const codec of ['avc1.640033', 'avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.42e01f']){
+    const cfg = {codec, width, height, framerate, bitrate: Math.round(Math.min(12e6, Math.max(1.5e6, width * height * framerate * 0.12))), avc: {format: 'avc'}};
+    try{ if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; }catch(e){}
+  }
+  return null;
+}
+async function exportVideo(){
+  if (!vid.src){ $('#expStatus').innerHTML = '<span class="warn-box">Cargue primero un video.</span>'; return; }
+  if (!window.VideoEncoder || !window.VideoFrame){ $('#expStatus').innerHTML = '<span class="warn-box">Este navegador no puede crear videos. Use Chrome o Edge actualizados.</span>'; return; }
+  if (job) return;
+  $('#expStatus').textContent = ''; $('#motPanel').hidden = true;
+  const T = ensureTrack(), t0 = vid.currentTime, max = +$('#vidSize').value;
+  const k = Math.min(1, max / Math.max(vid.videoWidth, vid.videoHeight));
+  const w = Math.round(vid.videoWidth * k / 2) * 2, h = Math.round(vid.videoHeight * k / 2) * 2;
+  const withSubs = $('#vidSubs').checked, blur = $('#blurFace').checked, angles = $('#showAngles').checked;
+  // Franja de subtítulos de alto fijo, para que todos los fotogramas midan lo mismo
+  const subH = withSubs ? fixedSubtitles(['x'], w).height : 0, H = h + subH + (subH % 2);
+  const cfg = await pickCodec(w, H, T.fps);
+  if (!cfg){ $('#expStatus').innerHTML = '<span class="warn-box">Este navegador no puede codificar video H.264 de este tamaño. Pruebe con «Reducido».</span>'; return; }
+  startJob(JOB_EXP);
+  let encoder = null, failed = null;
+  try{
+    const M = await loadMuxer();
+    const muxer = new M.Muxer({target: new M.ArrayBufferTarget(), video: {codec: 'avc', width: w, height: H, frameRate: T.fps}, fastStart: 'in-memory', firstTimestampBehavior: 'offset'});
+    encoder = new VideoEncoder({output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { failed = e; }});
+    encoder.configure(cfg);
+    await loadPose();
+    const c = document.createElement('canvas'); c.width = w; c.height = H;
+    const g = c.getContext('2d'), key = Math.max(1, Math.round(T.fps * 2)), scale = w / 640, idx = rangeIdx(T);
+    // El video exportado empieza en el inicio del tramo
+    for (let k = 0; k < idx.length; k++){
+      const i = idx[k];
+      if (job.cancel) break;
+      if (failed) throw failed;
+      await seekTo(frameTime(i, T));
+      if (!T.ok[i]){
+        const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+        setTrack(T, i, res.landmarks && res.landmarks[0], res.worldLandmarks && res.worldLandmarks[0]);
+      }
+      const det = detFromTrack(T, i);
+      g.fillStyle = '#141414'; g.fillRect(0, 0, w, H);
+      g.drawImage(vid, 0, 0, w, h);
+      if (det){
+        if (blur) pixelateFace(g, det.N, w, h);
+        drawSkeleton(g, det.N, w, h, scale);
+        if (angles) drawAngles(g, det, w, h, scale);
+      }
+      if (withSubs){
+        const sub = fixedSubtitles(det ? detLines(det) : ['No se detectó ninguna persona'], w);
+        g.save(); g.fillStyle = '#141414'; g.fillRect(0, h, w, H - h); g.restore();
+        drawSubtitles(g, {...sub, height: H - h}, w, h);
+      }
+      const frame = new VideoFrame(c, {timestamp: Math.round(k * 1e6 / T.fps), duration: Math.round(1e6 / T.fps)});
+      encoder.encode(frame, {keyFrame: k % key === 0}); frame.close();
+      while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 4));
+      if (k % 3 === 0){
+        $('#expJobBar').value = (k + 1) / idx.length;
+        $('#expJobText').textContent = `Creando el video: fotograma ${k + 1} de ${idx.length}…`;
+        await yieldUI();
+      }
+    }
+    if (job.cancel){ $('#expStatus').textContent = 'Exportación cancelada. Lo analizado se conserva.'; return; }
+    $('#expJobText').textContent = 'Terminando el archivo…';
+    await encoder.flush();
+    if (failed) throw failed;
+    muxer.finalize();
+    const r = getRange(), sec = v => `${Math.floor(v / 60)}m${pad(Math.floor(v % 60))}s`;
+    const name = (videoBase() || 'video') + ' - esqueleto' + (r.all ? '' : ` ${sec(r.a)}-${sec(r.b)}`) + '.mp4';
+    downloadBlob(new Blob([muxer.target.buffer], {type: 'video/mp4'}), name);
+    $('#expStatus').textContent = `Video descargado: ${name} (${idx.length} fotogramas, ${w}×${H} px).`;
+  }catch(e){
+    console.error(e);
+    $('#expStatus').innerHTML = '<span class="warn-box">No se pudo crear el video en este navegador.</span>';
+  }finally{
+    try{ if (encoder && encoder.state !== 'closed') encoder.close(); }catch(e){}
+    endJob(); await seekTo(t0); detectPose();
+  }
+}
+$('#expVideo').onclick = exportVideo;
+
+// ---- Exportar a OpenSim ----
+// Índices de MediaPipe Pose y nombres de los marcadores
+const TRC_MARKERS = [[0,'Nose'],[7,'LEar'],[8,'REar'],[11,'LShoulder'],[12,'RShoulder'],[13,'LElbow'],[14,'RElbow'],[15,'LWrist'],[16,'RWrist'],
+  [23,'LHip'],[24,'RHip'],[25,'LKnee'],[26,'RKnee'],[27,'LAnkle'],[28,'RAnkle'],[29,'LHeel'],[30,'RHeel'],[31,'LToe'],[32,'RToe']];
+// Posturas elegidas (todo el video o los fotogramas guardados), en orden de tiempo y con los ejes de OpenSim
+async function poseList(box){
+  if ($('#motSrc').value === 'frames'){
+    const list = S.frames.filter(f => f.w3).map(f => ({t: f.t, w3: f.w3, label: `Fotograma ${S.frames.indexOf(f) + 1}`}));
+    return {list, skipped: S.frames.length - list.length};
+  }
+  if (!vid.src) throw new Error('Cargue primero el video para calcular las posturas de todo el video.');
+  const T = ensureTrack(), rate = +$('#motRate').value, step = rate ? Math.max(1, Math.round(T.fps / rate)) : 1;
+  const idx = rangeIdx(T).filter((i, k) => k % step === 0);
+  if (idx.some(i => !T.ok[i])){
+    const t0 = vid.currentTime;
+    const ok = await analyze(T, idx, box, 'Detectando la postura');
+    await seekTo(t0);
+    if (!ok) return null;
+  }
+  const list = idx.filter(i => T.ok[i] === 1).map(i => { const p = getTrack(T, i); return {t: i / T.fps, w3: p.W.map(q => [q.x, q.y, q.z]), label: fmtTime(i / T.fps)}; });
+  return {list, skipped: idx.length - list.length};
+}
+function trcRows(list){
+  let prev = -Infinity;
+  return list.slice().sort((a, b) => a.t - b.t).map(o => {
+    const r = {o, t: Math.max(o.t, prev + 0.001)};   // TRC exige tiempos crecientes
+    prev = r.t;
+    // MediaPipe: x derecha de la imagen, y abajo, z hacia el fondo. OpenSim: X adelante, Y arriba, Z derecha.
+    const P = o.w3, conv = q => [-q[2], -q[1], -q[0]];
+    const ground = Math.min(...[27, 28, 29, 30, 31, 32].map(k => conv(P[k])[1]));   // apoya los pies en Y = 0
+    r.pts = Object.fromEntries(TRC_MARKERS.map(m => { const c = conv(P[m[0]]); return [m[1], [c[0], c[1] - ground, c[2]]]; }));
+    return r;
+  });
+}
+function buildTRC(rows, name){
+  const span = rows.at(-1).t - rows[0].t, rate = rows.length > 1 && span > 0 ? (rows.length - 1) / span : 1;
+  const f = v => v.toFixed(5), T = '\t', n = TRC_MARKERS.length;
+  const lines = [
+    ['PathFileType', 4, '(X/Y/Z)', name].join(T),
+    ['DataRate', 'CameraRate', 'NumFrames', 'NumMarkers', 'Units', 'OrigDataRate', 'OrigDataStartFrame', 'OrigNumFrames'].join(T),
+    [rate.toFixed(6), rate.toFixed(6), rows.length, n, 'm', rate.toFixed(6), 1, rows.length].join(T),
+    ['Frame#', 'Time', ...TRC_MARKERS.flatMap(m => [m[1], '', ''])].join(T),
+    ['', '', ...TRC_MARKERS.flatMap((m, i) => [`X${i + 1}`, `Y${i + 1}`, `Z${i + 1}`])].join(T),
+    ''
+  ];
+  rows.forEach((r, i) => lines.push([i + 1, r.t.toFixed(4), ...TRC_MARKERS.flatMap(m => r.pts[m[1]].map(f))].join(T)));
+  return lines.join('\n') + '\n';
+}
+const exportBase = () => videoBase() || (fileName || 'analisis').replace(/\.apo$/i, '');
+async function exportTRC(){
+  if (job) return;
+  $('#expStatus').textContent = '';
+  startJob(JOB_EXP);
+  try{
+    const r = await poseList(JOB_EXP);
+    if (!r) { $('#expStatus').textContent = 'Cancelado.'; return; }
+    if (!r.list.length){ $('#expStatus').innerHTML = '<span class="warn-box">No hay posturas detectadas para exportar.</span>'; return; }
+    const name = exportBase() + ' - marcadores.trc';
+    downloadBlob(new Blob([buildTRC(trcRows(r.list), name)], {type: 'text/plain'}), name);
+    $('#expStatus').textContent = `Archivo descargado con ${r.list.length} posturas.` + (r.skipped ? ` ${r.skipped} sin persona detectada no se incluyeron.` : '');
+  }catch(e){ console.error(e); $('#expStatus').innerHTML = `<span class="warn-box">${esc(e.message || 'No se pudo exportar.')}</span>`; }
+  finally{ endJob(); }
+}
+function downloadBlob(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+/*IK-INICIO*/
+// ---- Cinemática inversa en la aplicación: ajusta un modelo de OpenSim a los puntos de cada postura ----
+// Marcador: [cuerpo al que se fija, cuerpo cuyo origen marca la articulación, desplazamiento, peso]
+function ikMarkers(shoulderBody, head){
+  const mk = {Nose: [head.body, head.body, head.nose, head.w], LEar: [head.body, head.body, [head.ear[0], head.ear[1], -head.ear[2]], head.w], REar: [head.body, head.body, head.ear, head.w]};
+  for (const [M, s] of [['L', 'l'], ['R', 'r']]) Object.assign(mk, {
+    [M + 'Shoulder']: [shoulderBody(s), 'humerus_' + s, [0, 0, 0], 5], [M + 'Elbow']: ['ulna_' + s, 'ulna_' + s, [0, 0, 0], 1], [M + 'Wrist']: ['hand_' + s, 'hand_' + s, [0, 0, 0], 1],
+    [M + 'Hip']: ['pelvis', 'femur_' + s, [0, 0, 0], 5], [M + 'Knee']: ['tibia_' + s, 'tibia_' + s, [0, 0, 0], 1], [M + 'Ankle']: ['talus_' + s, 'talus_' + s, [0, 0, 0], 1],
+    [M + 'Heel']: ['calcn_' + s, 'calcn_' + s, [0, 0, 0], 1], [M + 'Toe']: ['toes_' + s, 'toes_' + s, [.05, 0, 0], 1]});
+  return mk;
+}
+// Columna del modelo de cuerpo completo: 6 niveles lumbares (L5-S1 a T12-L1) y 11 torácicos (T11-T12 a T1-T2)
+const SPINE_L = ['L5_S1', 'L4_L5', 'L3_L4', 'L2_L3', 'L1_L2', 'T12_L1'];
+const SPINE_T = ['T11_T12', 'T10_T11', 'T9_T10', 'T8_T9', 'T7_T8', 'T6_T7', 'T5_T6', 'T4_T5', 'T3_T4', 'T2_T3', 'T1_T2'];
+// Reparto supuesto (no medido) del movimiento del tronco entre las zonas lumbar y torácica, según sus rangos habituales.
+// La flexión total de la columna es 1,5 veces la inclinación de la pelvis (60 % columna y 40 % pelvis)
+const SPINE_SHARE = {FE: .6, LB: .4, AR: .15}, SPINE_PELVIS = 1.5;
+function spineCouplings(){
+  const out = [];
+  for (const [ax, src, total] of [['FE', 'pelvis_tilt', SPINE_PELVIS], ['LB', '@spine_LB', 1], ['AR', '@spine_AR', 1]]){
+    const kL = total * SPINE_SHARE[ax] / SPINE_L.length, kT = total * (1 - SPINE_SHARE[ax]) / SPINE_T.length;
+    SPINE_L.forEach(n => out.push([`${n}_${ax}`, src, kL]));
+    SPINE_T.forEach(n => out.push([`${n}_${ax}`, src, kT]));
+    out.push([`Abs_${ax}`, src, kL * 5]);   // el abdomen sigue a las cinco vértebras lumbares
+  }
+  return out;
+}
+const IK_MODELS = {
+  rajagopal2016: {
+    label: 'Rajagopal 2016', file: 'rajagopal2016.json',
+    markers: ikMarkers(() => 'torso', {body: 'torso', nose: [.10, .58, 0], ear: [0, .58, .07], w: 0}),
+    lockLumbar: true, fixed: /^$/, couple: [], soft: /^(arm_rot|pro_sup)_/, pelvisBodies: [],
+    side: ['lumbar_bending'], twist: ['lumbar_rotation'], twistLabel: 'rotación lumbar', arms: {elbow_flex: 1, arm_flex: .6}
+  },
+  wilkinson2021: {
+    label: 'Cuerpo completo (Wilkinson)', file: 'wilkinson2021.json',
+    // La nariz y las orejas, con medidas antropométricas aproximadas desde la base del cuello
+    markers: ikMarkers(s => s === 'r' ? 'scapula_R' : 'scapula_L', {body: 'head_neck', nose: [.11, .12, 0], ear: [.01, .13, .075], w: 1}),
+    scaleOffsets: true, fixed: /^(T\d+_r\d+[RL]_|Sternum)/, couple: spineCouplings(), soft: /^(shoulder_rot|pro_sup|subtalar_angle)_/, pelvisBodies: ['sacrum'],
+    // Con la columna curvada, la vértebra superior gira más que la línea de los hombros: la flexión lateral y la rotación
+    // se miden con esa línea respecto a la pelvis, igual que en Rajagopal, donde el tronco es rígido
+    side: null, twist: null, twistLabel: 'rotación del tronco', arms: {elbow_flex: 1, shoulder_elv: .6}
+  }
+};
+// Límites para señalar una postura como poco fiable (valores de partida, no validados)
+const IK_SOFT = .02;
+const IK_LIMITS = {rms: 5, max: 10, trunk: 100, diff: 5, side: 30, twist: 40};
+
+const m3mul = (a, b) => { const r = new Array(9); for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) r[i*3+j] = a[i*3]*b[j] + a[i*3+1]*b[3+j] + a[i*3+2]*b[6+j]; return r; };
+const m3vec = (a, v) => [a[0]*v[0] + a[1]*v[1] + a[2]*v[2], a[3]*v[0] + a[4]*v[1] + a[5]*v[2], a[6]*v[0] + a[7]*v[1] + a[8]*v[2]];
+const m3t = a => [a[0], a[3], a[6], a[1], a[4], a[7], a[2], a[5], a[8]];
+const v3add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const v3sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const v3mid = (a, b) => [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2];
+const v3len = v => Math.hypot(v[0], v[1], v[2]);
+const v3dist = (a, b) => v3len(v3sub(a, b));
+function m3rot(u, a){
+  const c = Math.cos(a), s = Math.sin(a), t = 1 - c, [x, y, z] = u;
+  return [t*x*x + c, t*x*y - s*z, t*x*z + s*y, t*x*y + s*z, t*y*y + c, t*y*z - s*x, t*x*z - s*y, t*y*z + s*x, t*z*z + c];
+}
+const m3euler = o => m3mul(m3mul(m3rot([1, 0, 0], o[0]), m3rot([0, 1, 0], o[1])), m3rot([0, 0, 1], o[2]));
+const median = v => { const s = [...v].sort((a, b) => a - b), n = s.length; return n % 2 ? s[(n - 1) / 2] : (s[n / 2 - 1] + s[n / 2]) / 2; };
+
+// Función de un eje: [pendiente, ordenada] o curva muestreada a intervalos regulares
+function ikFn(f, x){
+  if (Array.isArray(f)) return f[0] * x + f[1];
+  const k = Math.min(Math.max((x - f.x0) / f.dx, 0), f.y.length - 1), i = Math.min(Math.floor(k), f.y.length - 2);
+  return f.y[i] + (f.y[i + 1] - f.y[i]) * (k - i);
+}
+// Prepara la cadena cinemática con un factor de escala por cuerpo
+function ikModel(data, scale = {}){
+  const sc = b => scale[b] ?? 1, index = {};
+  data.coordenadas.forEach((c, i) => { index[c.n] = i; });
+  const joints = data.articulaciones.map(a => {
+    const sp = sc(a.padre[0]), sh = sc(a.hijo[0]);
+    return {parent: a.padre[0], body: a.hijo[0], pR: m3euler(a.padre[2]), pT: a.padre[1].map(v => v * sp), cRt: m3t(m3euler(a.hijo[2])), cT: a.hijo[1].map(v => v * sh), ts: sp,
+      axes: a.ejes.map(e => ({rot: e.rot, u: e.eje, i: index[e.c], f: e.f}))};
+  });
+  return {joints, index, coords: data.coordenadas};
+}
+// Posición y orientación de cada cuerpo en el suelo para las coordenadas q (radianes y metros)
+function ikForward(model, q){
+  const B = {ground: {R: [1, 0, 0, 0, 1, 0, 0, 0, 1], p: [0, 0, 0]}};
+  for (const j of model.joints){
+    const P = B[j.parent], F = m3mul(P.R, j.pR);
+    const o = v3add(P.p, m3vec(P.R, j.pT));
+    let Rj = [1, 0, 0, 0, 1, 0, 0, 0, 1], t = [0, 0, 0];
+    for (const e of j.axes){
+      const v = ikFn(e.f, q[e.i]);
+      if (e.rot) Rj = m3mul(Rj, m3rot(e.u, v));
+      else t = [t[0] + e.u[0] * v * j.ts, t[1] + e.u[1] * v * j.ts, t[2] + e.u[2] * v * j.ts];
+    }
+    const R = m3mul(m3mul(F, Rj), j.cRt);
+    B[j.body] = {R, p: v3sub(v3add(o, m3vec(F, t)), m3vec(R, j.cT))};
+  }
+  return B;
+}
+// Gira cada postura alrededor de la vertical para que las caderas miren hacia +X: la persona puede estar
+// orientada de cualquier forma y, sin este giro, pelvis_tilt deja de medir la inclinación del tronco
+function ikAlign(rows){
+  return rows.map(r => {
+    const L = r.pts.LHip, D = r.pts.RHip, cx = (L[0] + D[0]) / 2, cz = (L[2] + D[2]) / 2;
+    const g = Math.atan2(D[0] - L[0], D[2] - L[2]), co = Math.cos(g), se = Math.sin(g), pts = {};
+    for (const [n, p] of Object.entries(r.pts)){ const x = p[0] - cx, z = p[2] - cz; pts[n] = [co * x - se * z, p[1], se * x + co * z]; }
+    return {...r, pts};
+  });
+}
+// Factores de escala: relación entre lo medido en las posturas y el modelo (la mediana resiste las detecciones erróneas)
+function ikScale(data, rows, cfg){
+  const c = ikModel(data), q = c.coords.map(x => x.d), B = ikForward(c, q), d = (a, b) => v3dist(B[a].p, B[b].p);
+  const len = (a, b) => median(rows.map(r => v3dist(r.pts[a], r.pts[b])));
+  const f = {};
+  for (const [M, s] of [['L', 'l'], ['R', 'r']]){
+    for (const [bodies, a, b, p, r] of [[['femur', 'patella'], 'Hip', 'Knee', 'femur', 'tibia'], [['tibia', 'talus', 'calcn', 'toes'], 'Knee', 'Ankle', 'tibia', 'talus'],
+      [['humerus'], 'Shoulder', 'Elbow', 'humerus', 'ulna'], [['ulna', 'radius', 'hand'], 'Elbow', 'Wrist', 'ulna', 'hand']])
+      for (const n of bodies) f[`${n}_${s}`] = len(M + a, M + b) / d(`${p}_${s}`, `${r}_${s}`);
+  }
+  f.pelvis = len('LHip', 'RHip') / d('femur_l', 'femur_r');
+  const trunk = median(rows.map(r => v3dist(v3mid(r.pts.LShoulder, r.pts.RShoulder), v3mid(r.pts.LHip, r.pts.RHip))));
+  f.torso = trunk / v3dist(v3mid(B.humerus_l.p, B.humerus_r.p), v3mid(B.femur_l.p, B.femur_r.p));
+  for (const k in f) f[k] = Math.min(Math.max(f[k], .5), 1.5);
+  // El resto de los cuerpos (columna, costillas, cabeza, cintura escapular) se escalan como el tronco
+  for (const j of data.articulaciones){ const b = j.hijo[0]; if (!(b in f)) f[b] = cfg.pelvisBodies.includes(b) ? f.pelvis : f.torso; }
+  return f;
+}
+// Modelo escalado, marcadores y parámetros del ajuste. Cada parámetro mueve una coordenada o, en la columna,
+// varias a la vez con proporciones fijas (q = base + suma de parámetro × factor)
+function ikSetup(data, rows, cfg = IK_MODELS.rajagopal2016){
+  const aligned = ikAlign(rows), scale = ikScale(data, aligned, cfg), model = ikModel(data, scale), ix = model.index, cs = model.coords;
+  const q0 = cs.map(c => c.d), B = ikForward(model, q0), markers = [];
+  for (const [name, [body, ref, off, w]] of Object.entries(cfg.markers)){
+    if (!w) continue;
+    const o = cfg.scaleOffsets ? off.map(v => v * scale[ref]) : off, p = v3add(B[ref].p, m3vec(B[ref].R, o));
+    markers.push({name, body, w: Math.sqrt(w), loc: m3vec(m3t(B[body].R), v3sub(p, B[body].p))});
+  }
+  // Rajagopal: sin marcadores en la pelvis, su inclinación y la flexión lumbar se compensan y el ajuste las repartiría
+  // al azar; la extensión lumbar queda fija con los hombros sobre las caderas y pelvis_tilt mide todo el tronco
+  if (cfg.lockLumbar){
+    const L = B.torso.p, S = v3mid(B.humerus_l.p, B.humerus_r.p), H = v3mid(B.femur_l.p, B.femur_r.p);
+    q0[ix.lumbar_extension] = -(Math.asin((H[0] - L[0]) / Math.hypot(S[0] - L[0], S[1] - L[1])) - Math.atan2(S[0] - L[0], S[1] - L[1]));
+  }
+  const dependent = new Set(cfg.couple.map(c => c[0]));
+  const params = cs.flatMap((c, i) => c.fija || c.n.endsWith('_beta') || cfg.fixed.test(c.n) || dependent.has(c.n) || (cfg.lockLumbar && c.n === 'lumbar_extension') ? []
+    : [{name: c.n, entries: [[i, 1]], lo: c.lim ? c.min : -Infinity, hi: c.lim ? c.max : Infinity}]);
+  const byName = Object.fromEntries(params.map(p => [p.name, p]));
+  for (const [dep, src, k] of cfg.couple){
+    if (!byName[src]) params.push(byName[src] = {name: src, entries: [], lo: -Infinity, hi: Infinity});   // parámetro virtual (@spine_LB, @spine_AR)
+    byName[src].entries.push([ix[dep], k]);
+  }
+  const base = q0.slice();
+  params.forEach(p => { if (p.entries[0] && p.entries[0][1] === 1 && p.entries[0][0] === ix[p.name]) base[ix[p.name]] = 0; });
+  // Girar un brazo estirado sobre su eje, o el pie sobre el subastragalino, apenas mueve los marcadores: un tirón muy débil
+  // hacia la posición neutra evita valores arbitrarios
+  const soft = params.flatMap((p, k) => cfg.soft.test(p.name) ? [k] : []);
+  const need = new Set([...markers.map(m => m.body), 'humerus_l', 'humerus_r', 'femur_l', 'femur_r']), parent = {};
+  model.joints.forEach(j => { parent[j.body] = j.parent; });
+  for (const b of [...need]) for (let x = parent[b]; x && x !== 'ground'; x = parent[x]) need.add(x);
+  const fk = {...model, joints: model.joints.filter(j => need.has(j.body))};
+  // Modelo estándar (sin escalar), el que se abre en OpenSim, y puntos de sus pies y tibias para apoyarlo en el suelo
+  return {cfg, model, fk, markers, q0, base, params, soft, aligned, scale, model0: ikModel(data), suelo: data.suelo};
+}
+function ikQ(s, p){
+  const q = s.base.slice();
+  s.params.forEach((P, k) => { for (const [i, f] of P.entries) q[i] += f * p[k]; });
+  return q;
+}
+function ikResidual(s, p, pts){
+  const B = ikForward(s.fk, ikQ(s, p)), r = new Array(s.markers.length * 3 + s.soft.length);
+  s.markers.forEach((m, k) => {
+    const b = B[m.body], x = v3add(b.p, m3vec(b.R, m.loc)), t = pts[m.name];
+    for (let i = 0; i < 3; i++) r[k*3+i] = m.w * (x[i] - t[i]);
+  });
+  s.soft.forEach((k, j) => { r[s.markers.length * 3 + j] = IK_SOFT * p[k]; });
+  return r;
+}
+function ikLinSolve(A, b){
+  const n = b.length, x = b.slice();
+  for (let c = 0; c < n; c++){
+    let p = c;
+    for (let i = c + 1; i < n; i++) if (Math.abs(A[i][c]) > Math.abs(A[p][c])) p = i;
+    [A[c], A[p]] = [A[p], A[c]]; [x[c], x[p]] = [x[p], x[c]];
+    if (!A[c][c]) continue;
+    for (let i = c + 1; i < n; i++){
+      const f = A[i][c] / A[c][c];
+      if (!f) continue;
+      for (let j = c; j < n; j++) A[i][j] -= f * A[c][j];
+      x[i] -= f * x[c];
+    }
+  }
+  for (let i = n - 1; i >= 0; i--){
+    let v = x[i];
+    for (let j = i + 1; j < n; j++) v -= A[i][j] * x[j];
+    x[i] = A[i][i] ? v / A[i][i] : 0;
+  }
+  return x;
+}
+// Mínimos cuadrados con pesos (Levenberg-Marquardt), respetando los límites articulares del modelo
+function ikFit(s, pts, start){
+  const P = s.params, n = P.length, lo = P.map(x => x.lo), hi = P.map(x => x.hi);
+  const p = start.map((v, k) => Math.min(Math.max(v, lo[k]), hi[k]));
+  const cost = r => r.reduce((t, v) => t + v * v, 0);
+  let r = ikResidual(s, p, pts), c = cost(r), lambda = 1e-3;
+  for (let it = 0; it < 300; it++){
+    const J = p.map((v, k) => {
+      const h = v + 1e-6 > hi[k] ? -1e-6 : 1e-6;
+      p[k] = v + h; const rr = ikResidual(s, p, pts); p[k] = v;
+      return rr.map((x, m) => (x - r[m]) / h);
+    });
+    const g = J.map(col => col.reduce((t, x, m) => t + x * r[m], 0));
+    const fixed = p.map((v, k) => (v <= lo[k] && g[k] > 0) || (v >= hi[k] && g[k] < 0));
+    const H = J.map(a => J.map(b => a.reduce((t, x, m) => t + x * b[m], 0)));
+    let improved = false, step = 0;
+    for (let tries = 0; tries < 12 && !improved; tries++){
+      const A = H.map((row, a) => row.map((v, b) => fixed[a] || fixed[b] ? (a === b ? 1 : 0) : (a === b ? v * (1 + lambda) + 1e-12 : v)));
+      const d = ikLinSolve(A, g.map((v, k) => fixed[k] ? 0 : -v)), t = p.map((v, k) => Math.min(Math.max(v + d[k], lo[k]), hi[k]));
+      const rt = ikResidual(s, t, pts), ct = cost(rt);
+      if (ct < c){ step = c - ct; t.forEach((v, k) => { p[k] = v; }); r = rt; c = ct; lambda = Math.max(lambda / 3, 1e-9); improved = true; }
+      else lambda *= 4;
+    }
+    if (!improved || step < 1e-11) break;
+  }
+  return {p, cost: c};
+}
+// Resuelve una postura y revisa su calidad. Se prueba desde varias posturas iniciales y se conserva el mejor ajuste,
+// porque desde una sola el ajuste puede quedarse en un mínimo local
+function ikFrame(s, row, prev, fast = false){
+  const P = row.pts, ix = s.model.index, hip = v3mid(P.LHip, P.RHip), sh = v3mid(P.LShoulder, P.RShoulder), v = v3sub(sh, hip);
+  const toP = q => s.params.map(x => x.entries.length && ix[x.name] === x.entries[0][0] ? q[ix[x.name]] : 0);
+  const set = (base, vals) => { const t = base.slice(); for (const k in vals) if (k in ix) t[ix[k]] = vals[k]; return t; };
+  const start = set(s.q0, {pelvis_tx: hip[0], pelvis_ty: hip[1], pelvis_tz: hip[2], pelvis_tilt: -Math.atan2(v[0], v[1]) / (s.cfg.lockLumbar ? 1 : 1 + SPINE_PELVIS)});
+  const both = {}, bent = {knee_angle_r: .8, knee_angle_l: .8, hip_flexion_r: .8, hip_flexion_l: .8};
+  for (const [k, val] of Object.entries(s.cfg.arms)){ both[k + '_r'] = val; both[k + '_l'] = val; }
+  // fast: en una secuencia continua basta con partir de la postura anterior y de la inicial
+  const starts = (fast && prev ? [start] : [start, set(start, bent), set(start, both), set(start, {...bent, ...both})]).map(toP);
+  if (prev){ const p = prev.slice(); ['pelvis_tx', 'pelvis_ty', 'pelvis_tz'].forEach((n, j) => { const k = s.params.findIndex(x => x.name === n); if (k >= 0) p[k] = hip[j]; }); starts.push(p); }
+  const best = starts.map(x => ikFit(s, P, x)).reduce((a, b) => b.cost < a.cost ? b : a), q = ikQ(s, best.p);
+  const B = ikForward(s.fk, q), err = s.markers.map(m => { const b = B[m.body]; return v3dist(v3add(b.p, m3vec(b.R, m.loc)), P[m.name]); });
+  const rms = Math.sqrt(err.reduce((t, e) => t + e * e, 0) / err.length) * 100, max = Math.max(...err) * 100;
+  const deg = a => a * 180 / Math.PI, vertical = deg(Math.acos(v[1] / v3len(v))), measured = deg(Math.atan2(v[0], v[1]));
+  // Inclinación del tronco en el modelo: en Rajagopal es -pelvis_tilt; con la columna repartida, la de la línea de caderas a hombros
+  const ms = v3sub(v3mid(B.humerus_l.p, B.humerus_r.p), v3mid(B.femur_l.p, B.femur_r.p));
+  const trunk = s.cfg.lockLumbar ? -deg(q[ix.pelvis_tilt]) : deg(Math.atan2(ms[0], ms[1]));
+  const sum = names => Math.abs(deg(names.reduce((t, n) => t + q[ix[n]], 0)));
+  const Rp = m3t(B.pelvis.R), tl = m3vec(Rp, ms), sl = m3vec(Rp, v3sub(B.humerus_r.p, B.humerus_l.p));
+  const side = s.cfg.side ? sum(s.cfg.side) : Math.abs(deg(Math.asin(tl[2] / v3len(tl))));
+  const twist = s.cfg.twist ? sum(s.cfg.twist) : Math.abs(deg(Math.atan2(sl[0], sl[2]))), diff = Math.abs(trunk - measured);
+  const why = [], Lm = IK_LIMITS;
+  if (rms > Lm.rms) why.push(`error medio ${rms.toFixed(1)} cm`);
+  if (max > Lm.max) why.push(`peor marcador ${max.toFixed(1)} cm`);
+  if (vertical > Lm.trunk) why.push(`tronco a ${vertical.toFixed(0)}° de la vertical`);
+  if (diff > Lm.diff) why.push(`modelo y marcadores difieren ${diff.toFixed(0)}°`);
+  if (side > Lm.side) why.push(`flexión lateral ${side.toFixed(0)}°`);
+  if (twist > Lm.twist) why.push(`${s.cfg.twistLabel} ${twist.toFixed(0)}°`);
+  // El .mot se carga en el modelo estándar, de otro tamaño que el escalado a la persona: se ajusta solo la altura de la
+  // pelvis para que su punto más bajo (la planta del pie o, de rodillas, la rodilla) quede en el suelo
+  if (s.suelo){
+    const B0 = ikForward(s.model0, q);
+    let low = Infinity;
+    for (const [b, pts] of Object.entries(s.suelo)){ const R = B0[b].R, y = B0[b].p[1]; for (const p of pts) low = Math.min(low, y + R[3]*p[0] + R[4]*p[1] + R[5]*p[2]); }
+    q[ix.pelvis_ty] -= low;
+  }
+  return {t: row.t, q, p: best.p, rms, max, trunk, why};
+}
+function buildMOT(s, frames, name){
+  const cs = s.model.coords, ix = s.model.index, T = '\t';
+  const val = (f, c, i) => { const v = c.n.endsWith('_beta') ? f.q[ix[c.n.slice(0, -5)]] : f.q[i]; return (c.rot ? v * 180 / Math.PI : v).toFixed(8); };
+  return [name, 'version=1', `nRows=${frames.length}`, `nColumns=${cs.length + 1}`, 'inDegrees=yes', 'endheader', ['time', ...cs.map(c => c.n)].join(T),
+    ...frames.map(f => [f.t.toFixed(8), ...cs.map((c, i) => val(f, c, i))].join(T))].join('\n') + '\n';
+}
+/*IK-FIN*/
+let ikResult = null;
+const MOT_DATA = {rajagopal2016: 'os-model', wilkinson2021: 'os-wilk'};
+// Versión visible del modelo de Wilkinson (herramientas/modelo_cuerpo_completo.py), adjunta a la versión 4.13 de GitHub
+const MODELO_ZIP_URL = 'https://github.com/leolira0568/owas-web/releases/download/v4.13/ModeloCuerpoCompleto_OWAS.zip';
+const MOT_HELP = {
+  rajagopal2016: 'En OpenSim: <i>File → Open Model</i> con el modelo («Descargar modelo», junto a la lista «Modelo») o con <i>Rajagopal2016.osim</i> (carpeta <i>Models/Rajagopal</i> de OpenSim) y <i>File → Load Motion</i> con el .mot.',
+  wilkinson2021: 'En OpenSim: descargue el modelo con «Descargar modelo», junto a la lista «Modelo», descomprímalo, ábralo con <i>File → Open Model</i> (<i>cyclistFullBodyMuscle_OWAS.osim</i>, junto a su carpeta <i>Geometry</i>) y cargue el .mot con <i>File → Load Motion</i>. La flexión, la inclinación y el giro del tronco se reparten entre la pelvis y las 17 vértebras con proporciones supuestas, no medidas, y el cuello se estima con la nariz y las orejas.'
+};
+async function exportMOT(){
+  if (job) return;
+  $('#motPanel').hidden = true; ikResult = null; $('#expStatus').textContent = '';
+  startJob(JOB_EXP);
+  try{
+    const r = await poseList(JOB_EXP);
+    if (!r){ $('#expStatus').textContent = 'Cancelado.'; return; }
+    if (!r.list.length){ $('#expStatus').innerHTML = '<span class="warn-box">No hay posturas detectadas para calcular.</span>'; return; }
+    const key = $('#motModel').value, cfg = IK_MODELS[key];
+    const data = JSON.parse(new TextDecoder().decode(await embedded(MOT_DATA[key], cfg.file, 'opensim')));
+    const rows = trcRows(r.list), s = ikSetup(data, rows, cfg), frames = [];
+    // En una secuencia continua, cada postura parte de la anterior (más rápido); con pocas posturas sueltas, de varias posturas iniciales
+    const fast = $('#motSrc').value === 'video' && rows.length > 30;
+    let prev = null, t1 = performance.now();
+    for (let i = 0; i < rows.length; i++){
+      if (job.cancel){ $('#expStatus').textContent = 'Cálculo cancelado.'; return; }
+      const f = ikFrame(s, s.aligned[i], prev, fast);
+      prev = f.p; frames.push({...f, o: rows[i].o});
+      if (performance.now() - t1 > 60){
+        t1 = performance.now();
+        $('#expJobBar').value = (i + 1) / rows.length;
+        $('#expJobText').textContent = `Calculando los ángulos: postura ${i + 1} de ${rows.length}…`;
+        await yieldUI();
+      }
+    }
+    ikResult = {s, key, frames, skipped: r.skipped};
+    renderMot();
+  }catch(e){
+    console.error(e);
+    $('#expStatus').innerHTML = `<span class="warn-box">${esc(e.message && /video/.test(e.message) ? e.message : 'No se pudieron calcular los ángulos.')}</span>`;
+  }finally{ endJob(); }
+}
+const motFrames = () => $('#motOnlyOk').checked ? ikResult.frames.filter(f => !f.why.length) : ikResult.frames;
+function renderMot(){
+  const {frames, skipped} = ikResult, bad = frames.filter(f => f.why.length);
+  $('#motSummary').textContent = `${frames.length - bad.length} de ${frames.length} posturas son fiables.` + (skipped ? ` ${skipped} sin persona detectada no se incluyeron.` : '');
+  $('#motList').innerHTML = bad.slice(0, 200).map(f => `<li>${esc(f.o.label)}: ${esc(f.why.join('; '))}</li>`).join('') + (bad.length > 200 ? `<li>… y ${bad.length - 200} más (vea el archivo de calidad)</li>` : '');
+  $('#motList').hidden = !bad.length;
+  $('#motHelp').innerHTML = MOT_HELP[ikResult.key];
+  $('#motPanel').hidden = false;
+  updateMotSave();
+  $('#motPanel').scrollIntoView({block: 'nearest'});
+}
+function updateMotSave(){
+  const n = motFrames().length;
+  $('#motSave').disabled = !n;
+  $('#motSave').textContent = n ? `Descargar .mot (${n})` : 'Sin posturas fiables';
+}
+function saveMot(){
+  const name = exportBase() + (ikResult.key === 'wilkinson2021' ? ' - angulos cuerpo completo.mot' : ' - angulos.mot');
+  downloadBlob(new Blob([buildMOT(ikResult.s, motFrames(), name)], {type: 'text/plain'}), name);
+}
+function saveMotCsv(){
+  const rows = ikResult.frames.map(f => [f.t.toFixed(3), f.trunk.toFixed(1), f.rms.toFixed(1), f.max.toFixed(1), f.why.length ? 'no' : 'si', f.why.join('; ')].join(','));
+  downloadBlob(new Blob(['﻿' + ['tiempo_s,tronco_grados,error_rms_cm,error_max_cm,fiable,motivos', ...rows].join('\r\n') + '\r\n'], {type: 'text/csv'}), exportBase() + ' - calidad.csv');
+}
+// El modelo elegido en la lista se puede descargar en cualquier momento, sin calcular antes los ángulos
+const MODEL_INFO = {rajagopal2016: '.osim, incluido en la aplicación', wilkinson2021: '.zip de 2,2 MB, se descarga de GitHub'};
+const updateModelInfo = () => { $('#motModelInfo').textContent = MODEL_INFO[$('#motModel').value]; };
+async function saveOsim(){
+  // El modelo de cuerpo completo, con su geometría, es demasiado grande para incluirlo: se descarga de GitHub
+  if ($('#motModel').value === 'wilkinson2021'){ window.open(MODELO_ZIP_URL, '_blank', 'noopener'); return; }
+  const bytes = await embedded('os-osim', 'Rajagopal2016_OWAS.osim', 'opensim');
+  downloadBlob(new Blob([bytes], {type: 'application/xml'}), 'Rajagopal2016_OWAS.osim');
+}
+$('#expMot').onclick = exportMOT; $('#expTrc').onclick = exportTRC; $('#motSave').onclick = saveMot; $('#motCsv').onclick = saveMotCsv; $('#motOsim').onclick = saveOsim; $('#motOnlyOk').onchange = updateMotSave;
+$('#motModel').onchange = () => { $('#motPanel').hidden = true; ikResult = null; $('#expStatus').textContent = ''; updateModelInfo(); };
+$('#motSrc').onchange = () => { $('#motRateBox').hidden = $('#motSrc').value !== 'video'; $('#motPanel').hidden = true; ikResult = null; };
+updateModelInfo();
+$('#expClose').onclick = () => { if (job) job.cancel = true; $('#exportDlg').close(); };
+$('#exportDlg').addEventListener('cancel', e => { if (job) e.preventDefault(); });
+
+// ---- Teclado ----
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,select,textarea') || e.ctrlKey || e.metaKey || e.altKey || $('dialog[open]') || job) return;
+  const k = e.key;
+  if (!vid.src || (e.target.matches('button,a,summary') && (k === 'Enter' || k === ' '))) return;
+  const step = e.shiftKey ? 1 : 1 / fps();
+  if (k === 'ArrowLeft'){ seekBy(-step); e.preventDefault(); }
+  else if (k === 'ArrowRight'){ seekBy(step); e.preventDefault(); }
+  else if (k === ' '){ togglePlay(); e.preventDefault(); }
+  else if (k === 'Enter'){ saveFrame(); e.preventDefault(); }
+  else if (k === 'd' || k === 'D') detectPose(true);
+  else if (k === 'i' || k === 'I') setRange('a');
+  else if (k === 'o' || k === 'O') setRange('b');
+  else if (k === 'n' || k === 'N') gotoSaved(1);
+  else if (k === 'b' || k === 'B') gotoSaved(-1);
+});
+
+// ---- Ayuda ----
+$('#helpBox').innerHTML = `<h2>${ico('help')}Ayuda</h2>
+<p>Análisis Postural OpenSim detecta la postura de una persona en un video, dibuja su esqueleto con los ángulos de las articulaciones y exporta el video con ese dibujo y los ángulos articulares para OpenSim (.mot). Es un proyecto derivado de <a href="https://github.com/leolira0568/owas-web" target="_blank" rel="noopener">OWAS Web</a>, sin codificación OWAS ni gráficas de resultados.</p>
+<h3>Pasos</h3>
+<ol><li><b>Cargue el video</b> (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real. Con el video en pausa, cada fotograma se detecta al llegar a él; <b>Detectar postura</b> (tecla <span class="kbd">D</span>) lo vuelve a detectar.</li>
+<li>Indique los <b>fotogramas por segundo</b> con los que se recorre el video al analizarlo y exportarlo (normalmente, los del video: 30 o 60).</li>
+<li>Para trabajar solo con una parte del video, marque el <b>tramo</b>: vaya al momento en que empieza y pulse <b>Inicio aquí</b> (tecla <span class="kbd">I</span>), y al momento en que termina y pulse <b>Fin aquí</b> (tecla <span class="kbd">O</span>). El tramo se ve como una franja sobre la barra de tiempo. El análisis, el video exportado, el .mot y el .trc usan solo ese tramo; <b>Todo el video</b> lo quita. La reproducción y los fotogramas guardados no dependen del tramo.</li>
+<li><b>Analizar todo el video</b> (o <b>Analizar el tramo</b>) detecta la postura en cada fotograma. Después, la reproducción muestra el esqueleto de todos los fotogramas sin saltos. No es obligatorio: exportar el video o el .mot analiza lo que falte.</li>
+<li><b>Guardar fotograma</b> (tecla <span class="kbd">Enter</span>) conserva la imagen del momento actual, con su postura, sus ángulos y una nota. Aparecen en «Fotogramas guardados» y como marcas numeradas bajo la barra de tiempo.</li>
+<li><b>Exportar</b>: el video con el esqueleto (.mp4), los ángulos articulares para OpenSim (.mot) de todo el video o de los fotogramas guardados, y los marcadores 3D (.trc).</li>
+<li><b>Guardar</b> crea un proyecto .apo con los fotogramas guardados y el análisis del video. El video no se copia dentro: al abrir el proyecto, vuelva a cargarlo.</li></ol>
+<h3>Postura</h3>
+<p class="small">Los subtítulos describen la espalda (recta, inclinada, girada o inclinada y girada), los brazos (cuántos quedan por encima del hombro) y las piernas (sentado, de pie con las piernas rectas o flexionadas, sobre una pierna, arrodillado o caminando), con la inclinación del tronco respecto de la vertical, su giro y su inclinación lateral, y el ángulo de las rodillas (180° = extendida). Los límites se cambian en «Ajustes de detección». El esqueleto muestra los ángulos de codos, hombros, caderas y rodillas medidos en 3D. El giro de la espalda es la medida menos fiable.</p>
+<h3>OpenSim</h3>
+<p class="small">El .mot se calcula en este equipo, sin instalar OpenSim, ajustando el modelo elegido a los puntos 3D de cada postura (cinemática inversa). Antes de descargar, la aplicación señala las posturas poco fiables y, por defecto, las excluye. Para verlo: abra el modelo en OpenSim con <i>File → Open Model</i> («Descargar modelo» lo descarga) y cargue el .mot con <i>File → Load Motion</i>. El modelo queda apoyado en el suelo. Con «Todo el video», «Muestras por segundo» indica cuántas posturas por segundo se calculan: más muestras dan un movimiento más suave, pero tardan más.</p>
+<h3>Video exportado</h3>
+<p class="small">El video se crea en el navegador, fotograma a fotograma, en formato MP4 (H.264) y sin sonido. Necesita Chrome o Edge actualizados. Tarda más que la duración del video, porque se detecta cada fotograma que aún no esté analizado.</p>
+<h3 id="privacidad" style="margin-top:18px">Privacidad y seguridad</h3>
+<ul class="small">
+<li><b>Todo se procesa en este equipo.</b> El video, la detección de posturas, el cálculo de los ángulos y la creación del video exportado ocurren dentro del navegador. La aplicación no envía datos a ningún servidor, no usa cookies, ni analítica, ni servicios externos. MediaPipe y su modelo van incluidos en el propio archivo.</li>
+<li><b>Sin conexiones de red.</b> Una política de seguridad de contenido (CSP) impide que la aplicación se conecte a servidores externos. La única excepción es «Descargar modelo» del cuerpo completo, que abre su página de descarga en GitHub.</li>
+<li><b>Rostros difuminados.</b> Con «Difuminar el rostro» (en «Ajustes de detección», activado por defecto), la cara de la persona detectada se pixela en las imágenes guardadas y en el video exportado. Solo funciona cuando la detección encuentra a la persona: revise el resultado antes de compartirlo.</li>
+<li><b>Dónde quedan los datos.</b> En el autoguardado de este navegador, hasta que lo borre, y en los archivos que usted guarda o exporta (.apo, .mp4, .mot, .trc y .csv). Los proyectos y los videos exportados contienen datos personales. Los proyectos y los .trc guardan además los puntos 3D del cuerpo.</li>
+<li><b>Versión en línea.</b> GitHub Pages sirve el archivo de la aplicación y puede registrar datos técnicos de la visita, como la dirección IP. Los datos del análisis no se envían. Para la máxima privacidad, use el archivo descargado y sin conexión.</li>
+</ul>
+<p class="small">Informe a las personas grabadas del propósito del análisis y obtenga su consentimiento; grabe solo lo necesario; guarde los videos y proyectos en carpetas protegidas, y elimínelos cuando ya no los necesite, de acuerdo con la normativa de protección de datos de su país.</p>
+<div class="privacy-actions small">
+<label><input type="checkbox" id="autosaveToggle" checked autocomplete="off"> Guardar automáticamente el trabajo en este navegador</label>
+<button class="btn danger" id="wipeData" type="button">Borrar los datos guardados en este navegador</button>
+<span id="privStatus" role="status" class="muted"></span>
+</div>
+<h3>Licencias</h3>
+<p class="small muted">Análisis Postural OpenSim ${VERSION}, © 2026 Leonardo Lira, licencia MIT. Detección de posturas con MediaPipe Pose (© Google LLC, licencia Apache 2.0). Modelo Rajagopal 2016 (© 2015 Stanford University, licencia MIT). Modelo de cuerpo completo de Ross Wilkinson (© 2021, licencia MIT). mp4-muxer (© 2023 Vanilagy, licencia MIT). Todos van incluidos en este archivo, salvo la geometría del modelo de cuerpo completo, que se descarga aparte.</p>`;
+function showPrivacy(){ $('.help-details').open = true; $('#privacidad').scrollIntoView({behavior: 'smooth', block: 'start'}); }
+$('#privacyLink').addEventListener('click', e => { e.preventDefault(); showPrivacy(); });
+$('#autosaveToggle').checked = autosaveOn;
+$('#autosaveToggle').addEventListener('change', async e => {
+  autosaveOn = e.target.checked;
+  try{ localStorage.setItem('apos.autosave', autosaveOn ? 'on' : 'off'); }catch(err){}
+  if (autosaveOn) persist();
+  else { clearTimeout(persistTimer); try{ await idb.del('autosave'); }catch(err){} }
+  $('#privStatus').textContent = autosaveOn ? 'Autoguardado activado.' : 'Autoguardado desactivado y copia borrada de este navegador.';
+});
+$('#wipeData').addEventListener('click', async () => {
+  if (job) return;
+  if (!confirm('Se borrarán los datos guardados en este navegador (autoguardado y preferencias) y se cerrará el proyecto abierto sin guardarlo. ¿Continuar?')) return;
+  loadState(blank(), '', null); clearTimeout(persistTimer);
+  try{ await idb.del('autosave'); }catch(e){}
+  try{ Object.keys(localStorage).filter(k => /^apos\./.test(k)).forEach(k => localStorage.removeItem(k)); }catch(e){}
+  if (vid.src){ URL.revokeObjectURL(vid.src); vid.removeAttribute('src'); vid.load(); videoName = ''; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load'); }
+  autosaveOn = true; $('#autosaveToggle').checked = true;
+  clearOverlay(); renderAll();
+  $('#privStatus').textContent = 'Datos de este navegador borrados.';
+});
+
+// ---- Inicio ----
+document.querySelector('.top .actions').addEventListener('click', e => {
+  const a = e.target.closest('[data-act]'); if (!a || job) return;
+  ({new: newFile, open: openFile, save: () => saveFile(false), saveas: () => saveFile(true), export: () => { $('#expStatus').textContent = ''; $('#motPanel').hidden = true; $('#exportDlg').showModal(); }, theme: toggleTheme})[a.dataset.act]();
+});
+$('#restoredClose').onclick = () => $('#restored').hidden = true;
+window.addEventListener('beforeunload', e => { if (dirty || job){ e.preventDefault(); e.returnValue = ''; } });
+$$('.top .actions button').forEach(el => { const t = el.textContent.trim(); el.setAttribute('aria-label', t); el.innerHTML = `<span class="lbl">${t}</span>`; });
+$$('[data-icon]').forEach(el => el.insertAdjacentHTML('afterbegin', ico(el.dataset.icon)));
+const toTop = $('#toTop');
+window.addEventListener('scroll', () => { toTop.hidden = window.scrollY < 400; }, {passive: true});
+toTop.onclick = () => window.scrollTo({top: 0, behavior: 'smooth'});
+// Tema claro / oscuro: el botón muestra el tema al que se cambia
+function renderThemeBtn(){
+  const dark = document.documentElement.dataset.theme === 'dark', t = dark ? 'Tema claro' : 'Tema oscuro';
+  $('#themeBtn').innerHTML = ico(dark ? 'sun' : 'moon') + `<span class="lbl">${t}</span>`;
+  $('#themeBtn').setAttribute('aria-label', 'Cambiar a ' + t.toLowerCase());
+  $('#themeBtn').title = t;
+}
+function toggleTheme(){
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  document.documentElement.dataset.theme = next;
+  try{ localStorage.setItem('apos.theme', next); }catch(e){}
+  renderThemeBtn();
+}
+renderThemeBtn();
+function renderAll(){ renderHeader(); renderFrames(); renderMarks(); renderDup(); renderRange(); }
+renderVideoUI();
+(async () => {
+  let saved = null;
+  if (autosaveOn){ try{ saved = await idb.get('autosave'); }catch(e){} }
+  if (saved && saved.S && Array.isArray(saved.S.frames)){
+    S = saved.S; fileName = saved.fileName || ''; dirty = !!saved.dirty;
+    if (dirty || S.frames.length || S.track) $('#restored').hidden = false;
+  }
+  renderAll();
+})();
+</script>
+<!-- MediaPipe Tasks Vision 0.10.35 y modelo Pose Landmarker (full), © Google LLC, licencia Apache 2.0; modelos de OpenSim
+     (licencia MIT) y mp4-muxer 5.2.1 (licencia MIT). build.py reemplaza cada marcador por su archivo de vendor/ en base64. -->
+<script type="application/octet-stream" id="mp-bundle">@@MP_BUNDLE@@</script>
+<script type="application/octet-stream" id="mp-loader">@@MP_LOADER@@</script>
+<script type="application/octet-stream" id="mp-wasm">@@MP_WASM@@</script>
+<script type="application/octet-stream" id="mp-model">@@MP_MODEL@@</script>
+<script type="application/octet-stream" id="os-model">@@OS_MODEL@@</script>
+<script type="application/octet-stream" id="os-osim">@@OS_OSIM@@</script>
+<script type="application/octet-stream" id="os-wilk">@@OS_WILK@@</script>
+<script type="application/octet-stream" id="mp4-muxer">@@MUXER@@</script>
+</body>
+</html>

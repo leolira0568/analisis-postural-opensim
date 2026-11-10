@@ -1,0 +1,1205 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Seguridad: la aplicación no puede conectarse a ningún servidor externo. Solo se permiten el propio archivo,
+     los datos internos (data:/blob:) y WebAssembly para la detección de posturas, que se ejecuta en el equipo. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' data: blob:; worker-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Análisis Postural OpenSim</title>
+<script>
+  // Tema claro u oscuro: el último elegido por el usuario; por defecto, el claro
+  try{ document.documentElement.dataset.theme = localStorage.getItem('apos.theme') || 'light'; }
+  catch(e){ document.documentElement.dataset.theme = 'light'; }
+</script>
+<style>
+/*@@COPY 17-140@@*/
+/*@@COPY 142-152@@*/
+.top .actions button[data-act="export"]{background:var(--accent);border-color:var(--accent);font-weight:600}
+.top .actions button[data-act="export"]:hover{background:var(--accent);filter:brightness(1.1)}
+main{max-width:1180px;margin:0 auto;padding:16px}
+section.sec{display:block;margin-bottom:28px;scroll-margin-top:76px}
+.sec-title{display:flex;align-items:center;gap:10px;font-size:20px;margin:6px 0 12px}
+.sec-title span{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--ink);color:var(--surface);font-size:15px}
+/*@@COPY 176-202@@*/
+/*@@COPY 268-272@@*/
+/*@@COPY 291-293@@*/
+/*@@COPY 297-309@@*/
+/*@@COPY 336-371@@*/
+/*@@COPY 372-381@@*/
+.stage video{max-height:62vh}
+.save-row{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center}
+.save-row input[type=text]{flex:1;min-width:200px;width:auto}
+.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
+.frames figure{margin:0;border-radius:8px;overflow:hidden;background:var(--surface-2);display:flex;flex-direction:column}
+.frames figure > button{display:block;width:100%;padding:0;border:0;background:#141414;min-height:0}
+.frames img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain}
+.frames figcaption{padding:8px 10px;font-size:13px;display:flex;flex-direction:column;gap:6px;flex:1}
+.frames .fhead{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.frames .fdesc{color:var(--ink-2);line-height:1.35}
+.frames input[type=text]{padding:5px 8px;font-size:13px}
+.frames .vctrl{margin-top:auto}
+.frames .btn{min-height:34px;padding:5px 10px;font-size:13px}
+.job{background:var(--fill);border-radius:6px;padding:8px 10px;margin:4px 0 8px}
+.job progress{width:100%;height:10px;margin:6px 0}
+.job .vctrl{margin-top:4px}
+.export-opt .opts{display:flex;flex-direction:column;gap:6px;margin-top:6px}
+.export-opt .opts label{display:inline-flex;align-items:center;gap:8px}
+.export-opt .opts select{width:auto;padding:4px 8px}
+dialog#exportDlg{max-width:min(640px,94vw)}
+.export-opt{grid-template-columns:190px 1fr}
+.export-opt .btn{white-space:normal;text-align:left;justify-content:flex-start}
+.marks button b{font-size:11px}
+.marks button{width:24px}
+.warn-box{display:inline-block}
+/* Tramo del video que se analiza y se exporta: franja sobre la barra de tiempo */
+.timeline input{position:relative;z-index:1;background:transparent}
+.range-band{position:absolute;top:0;height:22px;border-radius:4px;background:var(--accent);opacity:.28;pointer-events:none}
+.range-row{border-top:1px solid var(--line-soft);padding-top:8px;margin-top:10px}
+.range-row .tc{min-width:150px}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="brand">Análisis Postural OpenSim<span class="fname" id="fname"></span><span class="dirty" id="dirty"></span></div>
+  <div class="actions">
+    <button class="ico-btn" data-act="new" data-icon="new" title="Nuevo proyecto">Nuevo proyecto</button>
+    <button class="ico-btn" data-act="open" data-icon="open" title="Abrir proyecto (.apo)">Abrir proyecto</button>
+    <button class="ico-btn" data-act="save" data-icon="save" title="Guardar">Guardar</button>
+    <button class="ico-btn" data-act="saveas" data-icon="saveas" title="Guardar como">Guardar como</button>
+    <button data-act="export" data-icon="download" title="Exportar el video con el esqueleto y los archivos para OpenSim">Exportar</button>
+    <button class="ico-btn" data-act="theme" id="themeBtn" title="Tema oscuro">Tema oscuro</button>
+  </div>
+</header>
+<main>
+  <div class="notice" id="restored" hidden><span style="display:flex;gap:8px;align-items:center" data-icon="history">Se recuperó el trabajo que no se había guardado. Vuelva a cargar el video para ver el esqueleto.</span><button class="btn" id="restoredClose" data-icon="close">Cerrar</button></div>
+
+  <section class="sec" id="sec-video">
+    <h1 class="sec-title"><span>1</span>Video</h1>
+    <div class="card">
+      <div class="detect">
+        <div class="vctrl">
+          <button class="btn primary" id="detectBtn" data-icon="scan">Detectar postura <span class="kbd">D</span></button>
+          <button class="btn" id="analyzeBtn" data-icon="film">Analizar todo el video</button>
+          <span class="small muted" id="trackInfo"></span>
+        </div>
+        <div class="job" id="jobBox" hidden>
+          <span class="small" id="jobText"></span>
+          <progress id="jobBar" max="1" value="0"></progress>
+          <div class="vctrl"><button class="btn" id="jobCancel" data-icon="close">Cancelar</button></div>
+        </div>
+        <details class="small">
+          <summary>Ajustes de detección</summary>
+          <div class="detect-opts">
+            <label><input type="checkbox" id="realtime" checked autocomplete="off"> Detectar la postura en tiempo real al reproducir el video y al moverse por él</label>
+            <label><input type="checkbox" id="showSubs" checked autocomplete="off"> Mostrar subtítulos con la postura y los ángulos</label>
+            <label><input type="checkbox" id="showAngles" checked autocomplete="off"> Mostrar los ángulos de las articulaciones en el esqueleto</label>
+            <label><input type="checkbox" id="bakeSkel" checked autocomplete="off"> Grabar el esqueleto, sus ángulos y los subtítulos en las imágenes guardadas</label>
+            <label><input type="checkbox" id="blurFace" checked autocomplete="off"> Difuminar el rostro en las imágenes guardadas y en el video exportado (privacidad)</label>
+            <label>Intensidad del difuminado <select data-cfg="blurBlocks"><option value="7">Suave</option><option value="5">Media</option><option value="3">Fuerte</option></select></label>
+          </div>
+          <div class="detect-cfg">
+            <label>Espalda inclinada desde (°) <input type="number" data-cfg="trunk" min="5" max="60"></label>
+            <label>Espalda girada o inclinada de lado desde (°) <input type="number" data-cfg="twist" min="5" max="60"></label>
+            <label>Rodilla flexionada por debajo de (°) <input type="number" data-cfg="knee" min="90" max="175"></label>
+            <label>Pie levantado desde (% de la pierna) <input type="number" data-cfg="lift" min="3" max="40"></label>
+            <label><input type="checkbox" data-cfg="walk"> Detectar «caminando» (compara con 0,5 s antes)</label>
+            <label>Caminando si la cadera se desplaza más de (% del tronco) <input type="number" data-cfg="walkDist" min="5" max="100"></label>
+            <label><input type="checkbox" data-cfg="avg3"> Promediar 3 fotogramas cercanos (±0,1 s) al detectar con el video en pausa</label>
+          </div>
+          <p class="cfg-head">Aspecto del esqueleto y los ángulos</p>
+          <div class="detect-cfg">
+            <label>Color del esqueleto <input type="color" data-cfg="skelColor"></label>
+            <label>Grosor de las líneas del esqueleto (px) <input type="number" data-cfg="skelWidth" min="1" max="10" step="0.5"></label>
+            <label>Color del texto de los ángulos <input type="color" data-cfg="angColor"></label>
+            <label>Tamaño del texto de los ángulos (px) <input type="number" data-cfg="angSize" min="8" max="32"></label>
+            <label>Color del compás <input type="color" data-cfg="arcColor"></label>
+            <label>Tamaño del compás (radio en px) <input type="number" data-cfg="arcSize" min="6" max="40"></label>
+            <div class="vctrl"><button class="btn" id="styleReset" data-icon="undo">Restaurar colores y tamaños</button></div>
+          </div>
+          <p class="muted">La detección usa MediaPipe Pose. Funciona mejor con una sola persona, de cuerpo entero y vista lateral o en diagonal. Revise cada resultado antes de usarlo.</p>
+        </details>
+      </div>
+      <div class="media-top">
+        <button class="btn load" id="loadVideo" data-icon="video">Cargar video</button>
+        <span class="muted small" id="videoName">Ningún video cargado</span>
+      </div>
+      <div class="stage"><video id="vid" playsinline muted preload="auto"></video><canvas class="overlay" id="ovVideo" aria-hidden="true"></canvas><p class="stage-empty" id="vidEmpty">Cargue un video (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real.</p></div>
+      <div class="subs" id="subsVideo" role="status" hidden></div>
+      <div class="timeline"><div class="range-band" id="rangeBand" hidden></div><input type="range" id="seek" min="0" max="0" step="0.01" value="0" aria-label="Posición del video"><div class="marks" id="marks"></div></div>
+      <div class="vctrl">
+        <button class="btn icon-only" id="vPrevS" data-icon="skipB" title="Fotograma guardado anterior (B)" aria-label="Fotograma guardado anterior"></button>
+        <button class="btn icon-only" id="vBack1" data-icon="chevsL" title="Retroceder 1 s (Mayús + ←)" aria-label="Retroceder 1 segundo"></button>
+        <button class="btn icon-only" id="vBackF" data-icon="chevL" title="Fotograma anterior (←)" aria-label="Fotograma anterior"></button>
+        <button class="btn primary icon-only" id="vPlay" title="Reproducir o pausar (Espacio)" aria-label="Reproducir"></button>
+        <button class="btn icon-only" id="vFwdF" data-icon="chevR" title="Fotograma siguiente (→)" aria-label="Fotograma siguiente"></button>
+        <button class="btn icon-only" id="vFwd1" data-icon="chevsR" title="Avanzar 1 s (Mayús + →)" aria-label="Avanzar 1 segundo"></button>
+        <button class="btn icon-only" id="vNextS" data-icon="skipF" title="Fotograma guardado siguiente (N)" aria-label="Fotograma guardado siguiente"></button>
+        <span class="tc" id="vTime">00:00.00 / 00:00.00</span>
+        <label class="small">Velocidad <select id="vRate"><option value="0.25">0,25×</option><option value="0.5">0,5×</option><option value="1" selected>1×</option><option value="2">2×</option></select></label>
+        <label class="small">Fotogramas/s <input type="number" id="vFps" min="1" max="240" value="30"></label>
+      </div>
+      <div class="vctrl range-row">
+        <b class="small">Tramo a analizar y exportar</b>
+        <button class="btn" id="rangeA" data-icon="rangeA" title="El tramo empieza en el momento actual (I)">Inicio aquí <span class="kbd">I</span></button>
+        <span class="tc small" id="rangeText">Todo el video</span>
+        <button class="btn" id="rangeB" data-icon="rangeB" title="El tramo termina en el momento actual (O)">Fin aquí <span class="kbd">O</span></button>
+        <button class="btn" id="rangeAll" data-icon="close" title="Analizar y exportar todo el video">Todo el video</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="save-row">
+        <button class="btn ok" id="saveFrame" data-icon="camera">Guardar fotograma <span class="kbd">Enter</span></button>
+        <input type="text" id="frameNote" placeholder="Nota (opcional), por ejemplo la tarea o el momento" aria-label="Nota del fotograma">
+        <span class="sr" id="saveLive" aria-live="polite"></span>
+      </div>
+      <p class="small task-warn" id="dupWarn" hidden></p>
+      <p class="small detect-status" id="detectStatus" role="status"></p>
+      <p class="small detect-status" id="detWarn" role="status"></p>
+    </div>
+    <p class="small muted">Atajos de teclado: <span class="kbd">Espacio</span> reproduce o pausa, <span class="kbd">←</span> <span class="kbd">→</span> cambian de fotograma, <span class="kbd">Mayús</span> + flecha salta 1 s, <span class="kbd">D</span> detecta la postura, <span class="kbd">I</span> / <span class="kbd">O</span> marcan el inicio y el fin del tramo, <span class="kbd">Enter</span> guarda el fotograma y <span class="kbd">B</span> / <span class="kbd">N</span> van al fotograma guardado anterior o siguiente.</p>
+  </section>
+
+  <section class="sec" id="sec-frames">
+    <h1 class="sec-title"><span>2</span>Fotogramas guardados</h1>
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+        <h2 style="margin:0" data-icon="list"><span id="frameCount">Ningún fotograma guardado</span></h2>
+        <button class="btn danger" id="clearAll" data-icon="trash">Borrar todos</button>
+      </div>
+      <div class="frames" id="frames"></div>
+    </div>
+  </section>
+
+  <section class="sec" id="sec-ayuda">
+    <details class="card help-details"><summary>Ayuda, privacidad y licencias</summary><div id="helpBox"></div></details>
+  </section>
+</main>
+<button class="to-top" id="toTop" data-icon="arrowUp" title="Subir al inicio" aria-label="Subir al inicio de la página" hidden></button>
+<footer class="foot">
+  <p><b>Análisis Postural OpenSim</b> · © 2026 Leonardo Lira · Código abierto con <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · <a href="https://github.com/leolira0568/analisis-postural-opensim" target="_blank" rel="noopener">Proyecto en GitHub</a> · Derivado de <a href="https://github.com/leolira0568/owas-web" target="_blank" rel="noopener">OWAS Web</a> · <a href="#privacidad" id="privacyLink">Privacidad y seguridad</a></p>
+  <p>Detección de posturas: MediaPipe Pose © Google LLC, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mediapipe/LICENSE" target="_blank" rel="noopener">licencia Apache 2.0</a> · Modelo Rajagopal 2016 © Stanford University, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/opensim/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · Modelo de cuerpo completo © Ross Wilkinson, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/opensim/LICENSE-wilkinson" target="_blank" rel="noopener">licencia MIT</a> · mp4-muxer © Vanilagy, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mp4-muxer/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · Iconos basados en <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (ISC)</p>
+</footer>
+<input type="file" id="fileOpen" accept=".apo" hidden>
+<input type="file" id="fileVideo" accept="video/*" hidden>
+<dialog id="exportDlg" aria-labelledby="exportTitle">
+  <h2 id="exportTitle">Exportar</h2>
+  <div class="export-opt">
+    <button class="btn primary" id="expVideo" data-icon="film">Video con esqueleto (.mp4)</button>
+    <div>
+      <p class="small muted">Recorre el video fotograma a fotograma, detecta la postura y graba un video nuevo con el esqueleto, los ángulos y los subtítulos, tal como se ven en pantalla. Sin sonido.</p>
+      <div class="opts small">
+        <label><input type="checkbox" id="vidSubs" checked autocomplete="off"> Incluir subtítulos con la postura y los ángulos (franja debajo de la imagen)</label>
+        <label>Tamaño <select id="vidSize"><option value="1920" selected>Como el original (hasta 1920 px)</option><option value="1280">Reducido (hasta 1280 px)</option></select></label>
+      </div>
+    </div>
+  </div>
+  <div class="export-opt">
+    <button class="btn primary" id="expMot" data-icon="body">OpenSim (.mot)</button>
+    <div>
+      <p class="small muted">Calcula en este equipo los ángulos articulares con un modelo de OpenSim, sin instalarlo. Función experimental.</p>
+      <div class="opts small">
+        <label>Posturas <select id="motSrc"><option value="video" selected id="motSrcVideo">Todo el video</option><option value="frames">Solo los fotogramas guardados</option></select></label>
+        <label id="motRateBox">Muestras por segundo <select id="motRate"><option value="0">Todos los fotogramas</option><option value="10" selected>10</option><option value="5">5</option><option value="1">1</option></select></label>
+      </div>
+      <div class="mot-model">
+        <label class="small">Modelo <select id="motModel"><option value="rajagopal2016">Rajagopal 2016 (músculos en las piernas)</option><option value="wilkinson2021" selected>Cuerpo completo (520 músculos)</option></select></label>
+        <button class="btn" id="motOsim" data-icon="body">Descargar modelo</button> <span class="small muted" id="motModelInfo"></span>
+      </div>
+    </div>
+  </div>
+  <div id="motPanel" class="mot-panel" hidden>
+    <p class="small" id="motSummary"></p>
+    <ul class="small" id="motList" hidden></ul>
+    <label class="small"><input type="checkbox" id="motOnlyOk" checked> Excluir del archivo las posturas poco fiables</label>
+    <p class="small muted" id="motHelp"></p>
+    <p class="small muted">La revisión no comprueba las rodillas: sus ángulos no son fiables. Revise el resultado antes de usarlo.</p>
+    <div class="vctrl">
+      <button class="btn primary" id="motSave" data-icon="fileText">Descargar .mot</button>
+      <button class="btn" id="motCsv" data-icon="fileText">Calidad (.csv)</button>
+    </div>
+  </div>
+  <div class="export-opt">
+    <button class="btn" id="expTrc" data-icon="body">Marcadores (.trc)</button>
+    <p class="small muted">Descarga los puntos 3D del cuerpo como marcadores de OpenSim, con las mismas posturas elegidas para el .mot. No incluye imágenes.</p>
+  </div>
+  <div class="job" id="expJob" hidden>
+    <span class="small" id="expJobText"></span>
+    <progress id="expJobBar" max="1" value="0"></progress>
+    <div class="vctrl"><button class="btn" id="expCancel" data-icon="close">Cancelar</button></div>
+  </div>
+  <p class="small export-note">Los videos exportados, las imágenes y los proyectos contienen datos personales de las personas grabadas: guárdelos en un lugar protegido y compártalos solo con quien deba verlos.</p>
+  <p class="small" id="expStatus" role="status"></p>
+  <div class="vctrl"><button class="btn" id="expClose" data-icon="close">Cerrar</button></div>
+</dialog>
+<dialog id="viewer" aria-label="Fotograma guardado">
+  <img id="viewImg" alt="">
+  <div id="viewInfo"></div>
+  <div class="vctrl"><button class="btn" id="viewJump" data-icon="video">Ir a este momento del video</button><button class="btn" id="viewClose" data-icon="close">Cerrar</button></div>
+</dialog>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const pad = n => String(n).padStart(2, '0');
+const VERSION = '1.0';
+
+//@@COPY 691-734@@
+ICONS.camera = '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/>';
+ICONS.rangeA = '<path d="M10 4H6v16h4"/><path d="M14 12h5"/><path d="m16 9 3 3-3 3"/>';
+ICONS.rangeB = '<path d="M14 4h4v16h-4"/><path d="M10 12H5"/><path d="m8 9-3 3 3 3"/>';
+ICONS.film = '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M7 3v18"/><path d="M3 7.5h4"/><path d="M3 12h18"/><path d="M3 16.5h4"/><path d="M17 3v18"/><path d="M17 7.5h4"/><path d="M17 16.5h4"/>';
+document.body.insertAdjacentHTML('afterbegin', '<svg width="0" height="0" style="position:absolute" aria-hidden="true">' +
+  Object.entries(ICONS).map(([k, v]) => `<symbol id="i-${k}" viewBox="0 0 24 24">${v}</symbol>`).join('') + '</svg>');
+const ico = (n, cls = 'ico') => `<svg class="${cls}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+
+// Posturas que se describen con palabras (las mismas categorías que usa OWAS, sin códigos ni niveles de riesgo)
+const POSTURE = {
+  b: ['Espalda recta', 'Espalda inclinada', 'Espalda girada', 'Espalda inclinada y girada'],
+  a: ['Ambos brazos por debajo del hombro', 'Un brazo por encima del hombro', 'Ambos brazos por encima del hombro'],
+  l: ['Sentado', 'De pie sobre ambas piernas rectas', 'De pie sobre una pierna recta', 'De pie, ambas rodillas flexionadas', 'De pie, una rodilla flexionada', 'Arrodillado', 'Caminando']
+};
+
+// ---- Estado ----
+// frames: fotogramas guardados. track: puntos del cuerpo de cada fotograma del video (análisis o detección en tiempo real)
+// range: tramo del video que se analiza y se exporta ({src, a, b} en segundos); null = todo el video
+const blank = () => ({frames: [], track: null, range: null});
+let S = blank(), fileName = '', fileHandle = null, dirty = false;
+// Autoguardado en IndexedDB (las imágenes y los puntos de todo el video no caben en localStorage)
+const idb = (() => {
+  let p;
+  const open = () => p || (p = new Promise((res, rej) => {
+    const r = indexedDB.open('analisis-postural-opensim', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+  }));
+  const run = (mode, fn) => open().then(d => new Promise((res, rej) => {
+    const t = d.transaction('kv', mode), q = fn(t.objectStore('kv'));
+    t.oncomplete = () => res(q && q.result); t.onerror = () => rej(t.error);
+  }));
+  return {get: k => run('readonly', s => s.get(k)), set: (k, v) => run('readwrite', s => s.put(v, k)), del: k => run('readwrite', s => s.delete(k))};
+})();
+let persistTimer = null, autosaveOn = true;
+try{ autosaveOn = localStorage.getItem('apos.autosave') !== 'off'; }catch(e){}
+function persist(delay = 300){
+  clearTimeout(persistTimer);
+  if (!autosaveOn) return;
+  persistTimer = setTimeout(() => { idb.set('autosave', {S, fileName, dirty}).catch(() => {}); }, delay);
+}
+function changed(){ dirty = true; persist(); renderHeader(); }
+
+// ---- Proyecto .apo: JSON con los fotogramas guardados (con sus imágenes) y los puntos del cuerpo de todo el video ----
+const b64 = buf => { const u = new Uint8Array(buf), parts = []; for (let i = 0; i < u.length; i += 0x8000) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 0x8000))); return btoa(parts.join('')); };
+const unb64 = (s, T) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
+function projectBytes(){
+  const T = S.track;
+  const track = T ? {src: T.src, fps: T.fps, n: T.n, N: b64(T.N.buffer), W: b64(T.W.buffer), ok: b64(T.ok.buffer)} : null;
+  return new TextEncoder().encode(JSON.stringify({format: 'analisis-postural-opensim', version: 1, S: {...S, track}}));
+}
+function parseProject(text){
+  const j = JSON.parse(text);
+  if (j.format !== 'analisis-postural-opensim' || !j.S || !Array.isArray(j.S.frames)) throw new Error('not project');
+  const st = blank(); st.frames = j.S.frames; st.range = j.S.range || null;
+  const T = j.S.track;
+  if (T) st.track = {src: T.src, fps: T.fps, n: T.n, N: unb64(T.N, Float32Array), W: unb64(T.W, Float32Array), ok: unb64(T.ok, Uint8Array)};
+  return st;
+}
+const FILE_TYPE = {description: 'Proyecto de Análisis Postural OpenSim', accept: {'application/json': ['.apo']}};
+function confirmDiscard(){ return !dirty || confirm('¿Desea descartar los cambios sin guardar?'); }
+function loadState(st, name, handle){
+  S = st; fileName = name; fileHandle = handle || null; dirty = false;
+  $('#restored').hidden = true;
+  persist(); clearOverlay(); renderAll();
+  if (vid.src) scheduleAutoDetect();
+}
+async function openFile(){
+  if (!confirmDiscard()) return;
+  let file = null, handle = null;
+  if (window.showOpenFilePicker){
+    try{ [handle] = await showOpenFilePicker({types: [FILE_TYPE]}); file = await handle.getFile(); }
+    catch(e){ if (e.name === 'AbortError') return; }
+  }
+  if (!file) file = await new Promise(res => { const el = $('#fileOpen'); el.value = ''; el.onchange = () => res(el.files[0] || null); el.click(); });
+  if (!file) return;
+  try{ loadState(parseProject(await file.text()), file.name, handle); }
+  catch(e){ alert(`"${file.name}" no es un proyecto de Análisis Postural OpenSim.`); return; }
+  const src = S.track ? S.track.src : (S.frames[0] || {}).src;
+  if (src && src !== videoName) alert(`Cargue el video «${src}» para ver el esqueleto y los fotogramas guardados sobre él.`);
+}
+async function saveFile(as){
+  const name = fileName || (videoBase() || 'analisis') + '.apo';
+  try{
+    if (!as && fileHandle){
+      const w = await fileHandle.createWritable(); await w.write(projectBytes()); await w.close();
+    } else if (window.showSaveFilePicker){
+      const h = await showSaveFilePicker({suggestedName: name, types: [FILE_TYPE]});
+      const w = await h.createWritable(); await w.write(projectBytes()); await w.close();
+      fileHandle = h; fileName = h.name;
+    } else throw new Error('no fs api');
+  }catch(e){
+    if (e.name === 'AbortError') return;
+    let n = name;
+    if (as || !fileName){ n = prompt('Nombre del archivo:', name); if (!n) return; if (!/\.apo$/i.test(n)) n += '.apo'; }
+    downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), n);
+    fileName = n;
+  }
+  dirty = false; persist(); renderHeader();
+}
+function newFile(){ if (!confirmDiscard()) return; loadState(blank(), '', null); }
+function renderHeader(){
+  $('#fname').textContent = fileName ? '— ' + fileName : '— (sin nombre)';
+  $('#dirty').textContent = dirty ? '●' : '';
+  $('#dirty').title = dirty ? 'Cambios sin guardar' : '';
+}
+
+// ---- Video ----
+const vid = $('#vid');
+let videoName = '';
+const videoBase = () => videoName.replace(/\.[^.]+$/, '');
+const fps = () => Math.min(240, Math.max(1, parseFloat($('#vFps').value) || 30));
+const fmtTime = t => { t = Math.max(0, t || 0); const m = Math.floor(t / 60), s = t - m * 60; return `${pad(m)}:${s.toFixed(2).padStart(5, '0')}`; };
+function setVideoTime(t){ vid.pause(); vid.currentTime = Math.min(Math.max(0, t), vid.duration || 0); }
+function seekBy(dt){ if (vid.src && !job) setVideoTime(vid.currentTime + dt); }
+function togglePlay(){ if (!vid.src || job) return; vid.paused ? vid.play() : vid.pause(); }
+function renderVideoUI(){
+  const d = vid.duration || 0;
+  $('#vTime').textContent = `${fmtTime(vid.currentTime)} / ${fmtTime(d)}`;
+  $('#seek').max = d; $('#seek').value = vid.currentTime;
+  const playing = !vid.paused;
+  $('#vPlay').innerHTML = ico(playing ? 'pause' : 'play');
+  $('#vPlay').setAttribute('aria-label', playing ? 'Pausar' : 'Reproducir');
+}
+// Fotogramas guardados de este video, en una fila debajo de la barra de tiempo
+const videoFrames = () => S.frames.map((f, i) => [f, i]).filter(([f]) => f.src === videoName).sort((x, y) => x[0].t - y[0].t);
+function renderMarks(){
+  const d = vid.duration, box = $('#marks'), items = d ? videoFrames() : [];
+  box.innerHTML = items.map(([f, i]) => `<button style="left:${f.t / d * 100}%" data-go="${i}" title="Fotograma ${i + 1} · ${fmtTime(f.t)}${f.note ? ' · ' + esc(f.note) : ''}" aria-label="Ir al fotograma guardado ${i + 1}"><b>${i + 1}</b></button>`).join('');
+  box.style.height = items.length ? '26px' : '0';
+}
+function gotoSaved(dir){
+  const t = vid.currentTime, list = videoFrames().map(([f]) => f.t);
+  const k = dir > 0 ? list.find(x => x > t + 1e-3) : [...list].reverse().find(x => x < t - 1e-3);
+  if (k != null) setVideoTime(k);
+}
+$('#marks').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) goToFrame(+b.dataset.go); });
+$('#loadVideo').onclick = () => { if (job) return; const f = $('#fileVideo'); f.value = ''; f.click(); };
+$('#fileVideo').onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  // Un proyecto abierto pertenece a un video: si el archivo se llama distinto, se puede usar igualmente
+  const src = S.track ? S.track.src : (S.frames[0] || {}).src;
+  if (src && src !== f.name && confirm(`El proyecto abierto es del video «${src}». ¿Usar «${f.name}» como ese video?\n\nAceptar: los fotogramas guardados y el análisis pasan a este video.\nCancelar: se carga el video sin relacionarlo con el proyecto.`)){
+    S.frames.forEach(fr => { if (fr.src === src) fr.src = f.name; });
+    if (S.track) S.track.src = f.name;
+    if (S.range) S.range.src = f.name;
+    changed();
+  }
+  if (vid.src) URL.revokeObjectURL(vid.src);
+  videoName = f.name; vid.src = URL.createObjectURL(f);
+  $('#videoName').textContent = f.name; $('#vidEmpty').hidden = true; $('#loadVideo').classList.remove('load');
+  clearOverlay(); lastDet = null;
+};
+vid.addEventListener('loadedmetadata', () => { renderVideoUI(); renderMarks(); renderRange(); });
+['timeupdate', 'seeked', 'play', 'pause'].forEach(ev => vid.addEventListener(ev, renderVideoUI));
+vid.addEventListener('error', () => {
+  if (!vid.getAttribute('src')) return;
+  alert('El navegador no puede reproducir este video. Use un archivo MP4 (H.264) o WebM.');
+  vid.removeAttribute('src'); videoName = ''; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load');
+});
+vid.addEventListener('click', togglePlay);
+$('#seek').addEventListener('input', e => { if (!job) setVideoTime(+e.target.value); });
+$('#vPlay').onclick = togglePlay;
+$('#vBackF').onclick = () => seekBy(-1 / fps()); $('#vFwdF').onclick = () => seekBy(1 / fps());
+$('#vBack1').onclick = () => seekBy(-1); $('#vFwd1').onclick = () => seekBy(1);
+$('#vPrevS').onclick = () => gotoSaved(-1); $('#vNextS').onclick = () => gotoSaved(1);
+$('#vRate').onchange = e => { vid.playbackRate = +e.target.value; };
+// Los fotogramas por segundo marcan cómo se recorre el video al analizarlo y exportarlo
+let fpsPrev = fps();
+$('#vFps').addEventListener('change', () => {
+  const T = S.track;
+  if (T && T.src === videoName && T.fps !== fps() && T.ok.some(v => v) && !confirm(`El video está analizado a ${T.fps} fotogramas/s. Si cambia el valor, se descarta ese análisis (los fotogramas guardados se conservan). ¿Continuar?`)){
+    $('#vFps').value = fpsPrev; return;
+  }
+  fpsPrev = fps(); renderRange();
+});
+
+// ---- Tramo del video que se analiza y se exporta ----
+const round3 = v => Math.round(v * 1000) / 1000;
+function getRange(){
+  const d = vid.duration || 0, r = S.range && S.range.src === videoName ? S.range : null;
+  if (!r || !d) return {a: 0, b: d, all: true};
+  const a = Math.min(Math.max(0, r.a), d), b = Math.min(Math.max(0, r.b), d);
+  return b - a >= 1 / fps() ? {a, b, all: false} : {a: 0, b: d, all: true};
+}
+// Fotogramas del análisis que caen dentro del tramo
+function rangeIdx(T){
+  const {a, b} = getRange();
+  const i0 = Math.min(T.n - 1, Math.max(0, Math.floor(a * T.fps + 1e-3)));
+  const i1 = Math.max(i0, Math.min(T.n - 1, Math.ceil(b * T.fps - 1e-3) - 1));
+  const out = []; for (let i = i0; i <= i1; i++) out.push(i);
+  return out;
+}
+function setRange(which){
+  if (!vid.src || !vid.duration || job) return;
+  const d = vid.duration, t = vid.currentTime;
+  let {a, b} = getRange();
+  if (which === 'a') a = t; else b = t;
+  // Si el inicio queda después del fin (o al revés), el otro extremo vuelve al final (o al principio) del video
+  if (b - a < 1 / fps()){ if (which === 'a') b = d; else a = 0; }
+  S.range = a <= 1e-3 && b >= d - 1e-3 ? null : {src: videoName, a: round3(a), b: round3(b)};
+  changed(); renderRange();
+}
+function renderRange(){
+  const d = vid.duration || 0, r = getRange(), on = !!vid.src && !!d && !r.all;
+  const band = $('#rangeBand');
+  band.hidden = !on;
+  if (on){ band.style.left = `calc(8px + (100% - 16px) * ${r.a / d})`; band.style.width = `calc((100% - 16px) * ${(r.b - r.a) / d})`; }
+  $('#rangeText').textContent = !vid.src ? '—' : r.all ? 'Todo el video' : `${fmtTime(r.a)} – ${fmtTime(r.b)} (${(r.b - r.a).toFixed(1)} s)`;
+  $('#analyzeBtn').innerHTML = ico('film') + (r.all ? 'Analizar todo el video' : 'Analizar el tramo');
+  $('#motSrcVideo').textContent = r.all ? 'Todo el video' : `El tramo elegido (${fmtTime(r.a)} – ${fmtTime(r.b)})`;
+  renderTrackInfo();
+}
+$('#rangeA').onclick = () => setRange('a');
+$('#rangeB').onclick = () => setRange('b');
+$('#rangeAll').onclick = () => { if (job) return; S.range = null; changed(); renderRange(); };
+
+// ---- Puntos del cuerpo de cada fotograma (análisis del video) ----
+const NP = 33;
+const frameCount = () => Math.max(1, Math.floor((vid.duration || 0) * fps() + 1e-6));
+const frameIdx = (t, T) => Math.min(T.n - 1, Math.max(0, Math.floor(t * T.fps + 1e-3)));
+const frameTime = (i, T) => Math.min((i + 0.5) / T.fps, Math.max(0, (vid.duration || 0) - 1e-3));
+function trackFor(){
+  const T = S.track;
+  return T && vid.src && T.src === videoName && T.fps === fps() ? T : null;
+}
+function ensureTrack(){
+  let T = trackFor();
+  if (!T){
+    const n = frameCount();
+    T = S.track = {src: videoName, fps: fps(), n, N: new Float32Array(n * NP * 4), W: new Float32Array(n * NP * 3), ok: new Uint8Array(n)};
+  }
+  return T;
+}
+// ok: 0 sin analizar, 1 persona detectada, 2 analizado sin persona
+function setTrack(T, i, N, W){
+  if (!N){ T.ok[i] = 2; return; }
+  for (let j = 0; j < NP; j++){
+    T.N.set([N[j].x, N[j].y, N[j].z, N[j].visibility ?? 1], (i * NP + j) * 4);
+    T.W.set([W[j].x, W[j].y, W[j].z], (i * NP + j) * 3);
+  }
+  T.ok[i] = 1;
+}
+function getTrack(T, i){
+  if (!T || i < 0 || i >= T.n || T.ok[i] !== 1) return null;
+  const N = [], W = [];
+  for (let j = 0; j < NP; j++){
+    const a = (i * NP + j) * 4, b = (i * NP + j) * 3;
+    N.push({x: T.N[a], y: T.N[a + 1], z: T.N[a + 2], visibility: T.N[a + 3]});
+    W.push({x: T.W[b], y: T.W[b + 1], z: T.W[b + 2]});
+  }
+  return {N, W};
+}
+// Postura del fotograma i del análisis; «caminando» compara con el fotograma de 0,5 s antes
+function detFromTrack(T, i){
+  const p = getTrack(T, i); if (!p) return null;
+  const k = Math.max(1, Math.round(0.5 * T.fps)), prev = getTrack(T, i - k) || getTrack(T, i + k);
+  return makeDet(p.N, p.W, prev && prev.N);
+}
+function renderTrackInfo(){
+  const T = trackFor(), all = getRange().all, idx = T ? rangeIdx(T) : [];
+  const done = idx.reduce((t, i) => t + (T.ok[i] ? 1 : 0), 0), what = all ? 'Video' : 'Tramo';
+  $('#trackInfo').textContent = !vid.src ? '' : !T || !done ? `${what} sin analizar.` : done >= idx.length ? `${what} analizado (${idx.length} fotogramas a ${T.fps} fotogramas/s).` : `Analizados ${done} de ${idx.length} fotogramas${all ? '' : ' del tramo'}.`;
+  $('#analyzeBtn').disabled = !vid.src || !!job;
+  for (const id of ['#rangeA', '#rangeB']) $(id).disabled = !vid.src || !!job;
+  $('#rangeAll').disabled = !vid.src || !!job || all;
+}
+
+// ---- Detección de posturas con MediaPipe Pose ----
+// MediaPipe (Apache 2.0, © Google LLC) va incrustado en base64 al final del archivo; build.py lo inserta.
+const POSE = {img: null, vid: null, loading: null, delegate: null};
+//@@COPY 1344-1353@@
+function loadPose(){
+  return POSE.loading || (POSE.loading = (async () => {
+    const [bundle, loader, wasm, model] = await Promise.all([
+      embedded('mp-bundle', 'vision_bundle.mjs'), embedded('mp-loader', 'vision_wasm_internal.js'),
+      embedded('mp-wasm', 'vision_wasm_internal.wasm'), embedded('mp-model', 'pose_landmarker_full.task')]);
+    const blobUrl = (bytes, type) => URL.createObjectURL(new Blob([bytes], {type}));
+    const vision = await import(blobUrl(bundle, 'text/javascript'));
+    const fileset = {wasmLoaderPath: blobUrl(loader, 'text/javascript'), wasmBinaryPath: blobUrl(wasm, 'application/wasm')};
+    // Dos detectores: uno para imágenes sueltas (video en pausa) y otro que sigue a la persona de un fotograma al siguiente.
+    // Con la tarjeta gráfica (WebGL) es unas seis veces más rápido que con el procesador; si no está disponible, se usa el procesador
+    const make = async runningMode => {
+      const opts = delegate => ({baseOptions: {modelAssetBuffer: model.slice(), delegate}, runningMode, numPoses: 1,
+        minPoseDetectionConfidence: 0.5, minPosePresenceConfidence: 0.5});
+      if (POSE.delegate !== 'CPU'){
+        try{ const lm = await vision.PoseLandmarker.createFromOptions(fileset, opts('GPU')); POSE.delegate = 'GPU'; return lm; }
+        catch(e){ console.warn('Detector en la tarjeta gráfica no disponible; se usa el procesador.', e); }
+      }
+      POSE.delegate = 'CPU';
+      return vision.PoseLandmarker.createFromOptions(fileset, opts('CPU'));
+    };
+    POSE.img = await make('IMAGE');
+    POSE.vid = await make('VIDEO');
+    return POSE;
+  })().catch(e => { POSE.loading = null; throw e; }));
+}
+// El detector de video exige tiempos crecientes, aunque el video se rebobine
+let poseClock = 0;
+const nextTs = (dt = 1) => (poseClock += Math.max(1, dt));
+
+//@@COPY 1369-1392@@
+
+//@@COPY 1394-1406@@
+
+// Convierte los puntos del cuerpo en la postura de espalda, brazos y piernas
+//@@COPY 1409-1454@@
+// Desplazamiento de la cadera entre dos fotogramas, en % de la longitud del tronco (para «caminando»)
+function hipShift(N, N2){
+  const hip = n => [(n[23].x + n[24].x) / 2, (n[23].y + n[24].y) / 2];
+  const torso = Math.hypot((N[11].x + N[12].x) / 2 - hip(N)[0], (N[11].y + N[12].y) / 2 - hip(N)[1]) || 1;
+  return Math.hypot(hip(N2)[0] - hip(N)[0], hip(N2)[1] - hip(N)[1]) / torso * 100;
+}
+function makeDet(N, W, Nwalk){
+  const r = classifyPosture(W, N);
+  if (CFG.walk && Nwalk && r.l && r.l !== 1 && r.l !== 6){
+    r.m.walk = hipShift(N, Nwalk);
+    if (r.m.walk >= CFG.walkDist) r.l = 7;
+  }
+  const rd = v => Math.round(v);
+  const m = {trunk: rd(r.m.trunk), twist: rd(r.m.twist), side: rd(r.m.side), armsUp: r.m.armsUp};
+  if (r.m.kneeL != null){ m.kneeL = rd(r.m.kneeL); m.kneeR = rd(r.m.kneeR); }
+  if (r.m.walk != null) m.walk = rd(r.m.walk);
+  return {N, W, m, p: {b: r.b, a: r.a, l: r.l}, warn: r.warn};
+}
+// Texto de los subtítulos: postura de cada parte y los ángulos medidos
+function detLines(det){
+  const {m, p} = det;
+  return [
+    `${POSTURE.b[p.b - 1]} (tronco ${m.trunk}°, giro ${m.twist}°, lateral ${m.side}°)`,
+    `${POSTURE.a[p.a - 1]} · ` + (p.l ? POSTURE.l[p.l - 1] : 'Piernas no visibles') +
+      (m.kneeL != null ? ` (rodillas ${m.kneeL}° / ${m.kneeR}°${m.walk != null ? `, desplazamiento ${m.walk} %` : ''})` : '')
+  ];
+}
+
+//@@COPY 1456-1518@@
+//@@COPY 1164-1184@@
+//@@COPY 1203-1224@@
+// Subtítulos en una franja de alto fijo (para el video): el texto se reduce si no cabe en tres renglones
+function fixedSubtitles(lines, w){
+  const rowsMax = 3, base = Math.max(11, Math.round(w / 48));
+  let sub = layoutSubtitles(lines, w);
+  for (let k = 1; sub.rows.length > rowsMax && k < 8; k++){
+    const fs = Math.round(base * (1 - k * 0.08)), g = document.createElement('canvas').getContext('2d'), rows = [];
+    g.font = `${fs}px Arial, Helvetica, sans-serif`;
+    for (const line of lines){ let cur = ''; for (const word of line.split(' ')){ const t = cur ? cur + ' ' + word : word; if (g.measureText(t).width > w - sub.pad * 2 && cur){ rows.push(cur); cur = word; } else cur = t; } rows.push(cur); }
+    sub = {...sub, rows, fs};
+  }
+  sub.height = rowsMax * sub.lh + sub.pad * 2;
+  return sub;
+}
+
+// Dibujo sobre la imagen de la pantalla
+function clearOverlay(){
+  const c = $('#ovVideo'); c.getContext('2d').clearRect(0, 0, c.width, c.height);
+  $('#subsVideo').hidden = true;
+  detWarn = []; renderDetWarn();
+}
+function renderOverlay(det){
+  const c = $('#ovVideo'), stage = vid.parentElement;
+  const r = vid.getBoundingClientRect(), sr = stage.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  c.style.left = (r.left - sr.left) + 'px'; c.style.top = (r.top - sr.top) + 'px';
+  c.style.width = r.width + 'px'; c.style.height = r.height + 'px';
+  const w = Math.round(r.width * dpr), h = Math.round(r.height * dpr);
+  if (c.width !== w || c.height !== h){ c.width = w; c.height = h; }
+  const g = c.getContext('2d'); g.clearRect(0, 0, c.width, c.height);
+  const subs = $('#subsVideo');
+  if (!det){ subs.hidden = true; return; }
+  drawSkeleton(g, det.N, c.width, c.height, dpr);
+  if ($('#showAngles').checked) drawAngles(g, det, c.width, c.height, dpr);
+  subs.hidden = !$('#showSubs').checked;
+  subs.innerHTML = detLines(det).map(t => `<div>${esc(t)}</div>`).join('');
+}
+// Clave del fotograma actual, para saber si la detección sigue vigente
+const mediaKey = () => `${videoName}@${vid.currentTime.toFixed(3)}`;
+let lastDet = null, detecting = false, triedKey = '';
+const seekTo = t => new Promise(res => { if (Math.abs(vid.currentTime - t) < 1e-6 && !vid.seeking){ res(); return; } vid.addEventListener('seeked', res, {once: true}); vid.currentTime = t; });
+//@@COPY 1554-1560@@
+
+// Detección del fotograma actual con el video en pausa: usa el análisis si ya existe para ese fotograma
+async function detectPose(force = false){
+  if (detecting || job) return;
+  if (!vid.src || vid.readyState < 2){ setDetectStatus('Cargue primero un video.'); return; }
+  detecting = true; triedKey = mediaKey();
+  try{
+    vid.pause();
+    const T0 = trackFor();
+    const cached = !force && T0 ? detFromTrack(T0, frameIdx(vid.currentTime, T0)) : null;
+    if (cached){ showDet(cached); setDetectStatus(''); return; }
+    if (!POSE.img) setDetectStatus('Preparando el detector de posturas (solo la primera vez, unos segundos)…');
+    await loadPose();
+    setDetectStatus('Detectando…');
+    const key = mediaKey(), res = POSE.img.detect(vid), t0 = vid.currentTime;
+    let N = res.landmarks && res.landmarks[0], W = res.worldLandmarks && res.worldLandmarks[0];
+    const drawN = N;
+    // Se promedian los puntos del fotograma y de sus vecinos a ±0,1 s para atenuar los errores puntuales
+    if (CFG.avg3){
+      const sets = N ? [[N, W]] : [];
+      for (const t of [t0 - 0.1, t0 + 0.1]){
+        if (t < 0 || t > vid.duration) continue;
+        await seekTo(t);
+        const rr = POSE.img.detect(vid);
+        if (rr.landmarks && rr.landmarks.length) sets.push([rr.landmarks[0], rr.worldLandmarks[0]]);
+      }
+      await seekTo(t0);
+      if (sets.length){ N = averageLandmarks(sets.map(x => x[0])); W = averageLandmarks(sets.map(x => x[1])); }
+    }
+    const T = vid.duration ? ensureTrack() : null, i = T ? frameIdx(t0, T) : -1;
+    if (!N){
+      if (T) setTrack(T, i, null);
+      lastDet = null; clearOverlay();
+      setDetectStatus('<span class="warn">No se detectó ninguna persona en este fotograma.</span>'); return;
+    }
+    // Caminando: compara la posición de la cadera con el fotograma de 0,5 s antes (o después, al principio del video)
+    let Nw = null;
+    if (CFG.walk && T){
+      const k = Math.max(1, Math.round(0.5 * T.fps)), stored = getTrack(T, i - k);
+      if (stored) Nw = stored.N;
+      else {
+        const t1 = t0 >= 0.5 ? t0 - 0.5 : t0 + 0.5 <= vid.duration ? t0 + 0.5 : null;
+        if (t1 != null){ await seekTo(t1); const r2 = POSE.img.detect(vid); await seekTo(t0); if (r2.landmarks && r2.landmarks.length) Nw = r2.landmarks[0]; }
+      }
+    }
+    if (T) setTrack(T, i, N, W);
+    const det = makeDet(N, W, Nw); det.N = drawN || N;
+    showDet(det, key);
+    setDetectStatus('');
+    persist(2000);
+    renderTrackInfo();
+  }catch(e){
+    console.error(e);
+    setDetectStatus('<span class="warn">No se pudo usar el detector de posturas en este navegador.</span>');
+  }finally{
+    detecting = false;
+    if (vid.paused && mediaKey() !== triedKey) scheduleAutoDetect();
+  }
+}
+function showDet(det, key = mediaKey()){
+  lastDet = det ? {...det, key} : null;
+  renderOverlay(det);
+  detWarn = det ? det.warn : []; renderDetWarn();
+  renderDup();
+}
+function setDetectStatus(html){ $('#detectStatus').innerHTML = html; }
+let detWarn = [];
+function renderDetWarn(){ $('#detWarn').innerHTML = detWarn.map(w => `<span class="warn">Atención: ${esc(w.t.replace(/: (revise|elija) .*$/, '.'))}</span>`).join(''); }
+$('#detectBtn').onclick = () => detectPose(true);
+
+// Tiempo real: al reproducir, se dibuja el esqueleto de cada fotograma que se muestra. Si el fotograma ya está
+// analizado se usan sus puntos; si no, se detecta (si el equipo no llega a tiempo, se salta algún fotograma)
+let liveBusy = false;
+function liveFrame(t){
+  const T = vid.duration ? ensureTrack() : null; if (!T) return;
+  const i = frameIdx(t, T);
+  if (T.ok[i] === 1){ showDet(detFromTrack(T, i)); return; }
+  if (!POSE.vid){ loadPose().catch(() => {}); return; }
+  if (liveBusy) return;
+  liveBusy = true;
+  try{
+    const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+    const N = res.landmarks && res.landmarks[0], W = res.worldLandmarks && res.worldLandmarks[0];
+    setTrack(T, i, N || null, W);
+    showDet(N ? detFromTrack(T, i) : null);
+    liveDirty = true;
+  }catch(e){ console.error(e); }
+  finally{ liveBusy = false; }
+}
+let liveDirty = false;
+// Un temporizador corto (y no requestAnimationFrame ni requestVideoFrameCallback) sigue funcionando aunque el video no esté a la vista
+let liveT = -1;
+function liveLoop(){
+  if (vid.paused || vid.ended || job) return;
+  if ($('#realtime').checked && vid.currentTime !== liveT){ liveT = vid.currentTime; liveFrame(liveT); }
+  setTimeout(liveLoop, 8);
+}
+vid.addEventListener('play', () => {
+  clearOverlay(); setDetectStatus('');
+  if ($('#realtime').checked && !POSE.vid) loadPose().catch(() => {});
+  liveT = -1; setTimeout(liveLoop, 8);
+});
+vid.addEventListener('pause', () => { if (liveDirty){ liveDirty = false; persist(2000); renderTrackInfo(); } });
+// La detección deja de valer al cambiar de fotograma
+vid.addEventListener('seeking', () => { if (!detecting && !job && vid.paused){ clearOverlay(); lastDet = null; } });
+vid.addEventListener('seeked', () => { if (!detecting && !job) renderDup(); });
+// Con el video en pausa, detecta al llegar a cada fotograma; espera un instante para no detectar en cada paso al avanzar rápido
+let autoTimer = null;
+function scheduleAutoDetect(){
+  if (!$('#realtime').checked || !vid.src || detecting || job) return;
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(() => { if (vid.paused && !vid.seeking && !detecting && !job) detectPose(); }, 250);
+}
+vid.addEventListener('seeked', () => { if (vid.paused && !detecting && !job) scheduleAutoDetect(); });
+vid.addEventListener('pause', () => { if (!detecting && !vid.seeking && !job) scheduleAutoDetect(); });
+vid.addEventListener('loadeddata', () => { if ($('#realtime').checked && !detecting && !job) detectPose(); });
+window.addEventListener('resize', () => { if (lastDet && lastDet.key === mediaKey()) renderOverlay(lastDet); renderMarks(); });
+for (const id of ['#showSubs', '#showAngles']) $(id).addEventListener('change', () => { if (lastDet && lastDet.key === mediaKey()) renderOverlay(lastDet); });
+
+// ---- Fotogramas guardados ----
+// Imagen del fotograma actual, reducida para que el proyecto no pese demasiado, con el rostro pixelado y el esqueleto
+function grabFrame(det){
+  const w0 = vid.videoWidth, h0 = vid.videoHeight;
+  if (!w0 || !h0) return null;
+  const k = Math.min(1, 800 / Math.max(w0, h0)), c = document.createElement('canvas');
+  const w = Math.round(w0 * k), h = Math.round(h0 * k), bake = det && $('#bakeSkel').checked;
+  const sub = bake ? layoutSubtitles(detLines(det), w) : null;
+  c.width = w; c.height = h + (sub ? sub.height : 0);
+  const g = c.getContext('2d');
+  g.drawImage(vid, 0, 0, w, h);
+  if (det && $('#blurFace').checked) pixelateFace(g, det.N, w, h);
+  if (bake){
+    drawSkeleton(g, det.N, w, h, w / 640);
+    if ($('#showAngles').checked) drawAngles(g, det, w, h, w / 640);
+    drawSubtitles(g, sub, w, h);
+  }
+  try{ return c.toDataURL('image/jpeg', 0.8); }catch(e){ return null; }
+}
+const savedIndex = () => vid.src ? S.frames.findIndex(f => f.src === videoName && Math.abs(f.t - vid.currentTime) < 0.5 / fps()) : -1;
+function renderDup(){
+  const i = savedIndex();
+  $('#dupWarn').hidden = i < 0;
+  if (i >= 0) $('#dupWarn').innerHTML = `<span class="warn-soft">${ico('check')}Este fotograma ya está guardado (fotograma ${i + 1}).</span>`;
+  $('#saveFrame').disabled = !vid.src || i >= 0 || !!job;
+}
+function saveFrame(){
+  if (!vid.src || vid.readyState < 2 || savedIndex() >= 0 || job) return;
+  vid.pause();
+  const det = lastDet && lastDet.key === mediaKey() ? lastDet : null;
+  const img = grabFrame(det); if (!img) return;
+  const mm = v => Math.round(v * 1000) / 1000;
+  const f = {t: Math.round(vid.currentTime * 1000) / 1000, src: videoName, img, note: $('#frameNote').value.trim()};
+  if (det) Object.assign(f, {m: det.m, p: det.p, w3: det.W.map(q => [mm(q.x), mm(q.y), mm(q.z)])});
+  S.frames.push(f);
+  $('#frameNote').value = '';
+  changed(); renderFrames(); renderMarks(); renderDup();
+  const b = $('#saveFrame');
+  b.innerHTML = ico('check') + 'Fotograma guardado'; $('#saveLive').textContent = 'Fotograma guardado';
+  setTimeout(() => { b.innerHTML = ico('camera') + 'Guardar fotograma <span class="kbd">Enter</span>'; $('#saveLive').textContent = ''; }, 1500);
+}
+$('#saveFrame').onclick = saveFrame;
+const frameDesc = f => f.m && f.p ? detLines(f).join(' · ') : 'Sin postura detectada';
+function renderFrames(){
+  const n = S.frames.length;
+  $('#frameCount').textContent = n ? (n === 1 ? '1 fotograma guardado' : `${n} fotogramas guardados`) : 'Ningún fotograma guardado';
+  $('#clearAll').disabled = !n;
+  $('#frames').innerHTML = n ? S.frames.map((f, i) => `<figure>
+    <button data-view="${i}" title="Ver en grande" aria-label="Ver el fotograma ${i + 1} en grande"><img src="${f.img}" alt="Fotograma ${i + 1}" loading="lazy"></button>
+    <figcaption>
+      <div class="fhead"><b>Fotograma ${i + 1} · ${fmtTime(f.t)}</b><span class="small muted">${esc(f.src)}</span></div>
+      <div class="fdesc">${esc(frameDesc(f))}</div>
+      <input type="text" data-note="${i}" value="${esc(f.note || '')}" placeholder="Nota" aria-label="Nota del fotograma ${i + 1}">
+      <div class="vctrl"><button class="btn" data-go="${i}" data-icon="video">Ir al video</button><button class="btn danger icon-only" data-del="${i}" title="Eliminar" aria-label="Eliminar el fotograma ${i + 1}">${ico('trash')}</button></div>
+    </figcaption></figure>`).join('') : '<p class="empty" style="grid-column:1/-1">Pause el video en el momento que quiera conservar y pulse «Guardar fotograma».</p>';
+  $$('#frames [data-icon]').forEach(el => { if (!el.querySelector('svg')) el.insertAdjacentHTML('afterbegin', ico(el.dataset.icon)); });
+}
+$('#frames').addEventListener('click', e => {
+  const go = e.target.closest('[data-go]'), del = e.target.closest('[data-del]');
+  if (go) goToFrame(+go.dataset.go);
+  if (del && confirm(`¿Eliminar el fotograma ${+del.dataset.del + 1}?`)){ S.frames.splice(+del.dataset.del, 1); changed(); renderFrames(); renderMarks(); renderDup(); }
+});
+$('#frames').addEventListener('input', e => { const k = e.target.dataset.note; if (k != null){ S.frames[+k].note = e.target.value; changed(); } });
+$('#clearAll').onclick = () => { if (S.frames.length && confirm('¿Borrar todos los fotogramas guardados?')){ S.frames = []; changed(); renderFrames(); renderMarks(); renderDup(); } };
+function goToFrame(i){
+  const f = S.frames[i]; if (!f) return;
+  if (f.src === videoName && vid.src && !job){ $('#sec-video').scrollIntoView({behavior: 'smooth', block: 'start'}); setVideoTime(f.t); return; }
+  openViewer(i);
+}
+let viewIdx = -1;
+function openViewer(i){
+  const f = S.frames[i]; if (!f) return;
+  viewIdx = i;
+  $('#viewImg').src = f.img; $('#viewImg').alt = `Fotograma ${i + 1}`;
+  $('#viewInfo').innerHTML = `<p style="margin:0 0 6px"><b>Fotograma ${i + 1} · ${fmtTime(f.t)}</b> <span class="small muted">${esc(f.src)}</span></p><p class="small muted" style="margin:0">${f.m && f.p ? detLines(f).map(esc).join('<br>') : 'Sin postura detectada'}${f.note ? '<br>Nota: ' + esc(f.note) : ''}</p>`;
+  $('#viewJump').hidden = !(f.src === videoName && vid.src);
+  $('#viewer').showModal();
+}
+$('#viewClose').onclick = () => $('#viewer').close();
+$('#viewer').addEventListener('click', e => { if (e.target === $('#viewer')) $('#viewer').close(); });
+$('#viewJump').onclick = () => { const f = S.frames[viewIdx]; $('#viewer').close(); $('#sec-video').scrollIntoView({behavior: 'smooth', block: 'start'}); setVideoTime(f.t); };
+document.addEventListener('click', e => { const b = e.target.closest('[data-view]'); if (b) openViewer(+b.dataset.view); });
+
+// ---- Recorrido de todo el video, fotograma a fotograma: análisis y video con el esqueleto ----
+let job = null;
+function startJob(box){
+  job = {cancel: false, box};
+  vid.pause(); clearTimeout(autoTimer);
+  $(box.wrap).hidden = false; $(box.bar).value = 0; $(box.text).textContent = '';
+  renderTrackInfo(); renderDup();
+  return job;
+}
+function endJob(){
+  const b = job && job.box; job = null;
+  if (b) $(b.wrap).hidden = true;
+  renderTrackInfo(); renderDup(); persist(500);
+}
+const JOB_MAIN = {wrap: '#jobBox', bar: '#jobBar', text: '#jobText'}, JOB_EXP = {wrap: '#expJob', bar: '#expJobBar', text: '#expJobText'};
+$('#jobCancel').onclick = $('#expCancel').onclick = () => { if (job) job.cancel = true; };
+const yieldUI = () => new Promise(r => setTimeout(r));
+// Detecta los fotogramas que falten (indices: los que se necesitan). Devuelve false si se canceló
+async function analyze(T, indices, box, label){
+  await loadPose();
+  const todo = indices.filter(i => !T.ok[i]);
+  for (let k = 0; k < todo.length; k++){
+    if (job.cancel) return false;
+    const i = todo[k];
+    await seekTo(frameTime(i, T));
+    const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+    setTrack(T, i, res.landmarks && res.landmarks[0], res.worldLandmarks && res.worldLandmarks[0]);
+    if (k % 3 === 0){
+      $(box.bar).value = (k + 1) / todo.length;
+      $(box.text).textContent = `${label}: fotograma ${k + 1} de ${todo.length}…`;
+      if (lastDrawn + 120 < performance.now()){ showDet(detFromTrack(T, i), ''); lastDrawn = performance.now(); }
+      await yieldUI();
+    }
+  }
+  return true;
+}
+let lastDrawn = 0;
+$('#analyzeBtn').onclick = async () => {
+  if (!vid.src || job) return;
+  const T = ensureTrack(), t0 = vid.currentTime;
+  startJob(JOB_MAIN);
+  try{
+    const ok = await analyze(T, rangeIdx(T), JOB_MAIN, 'Analizando');
+    setDetectStatus(ok ? '' : 'Análisis cancelado. Lo analizado se conserva.');
+  }catch(e){ console.error(e); setDetectStatus('<span class="warn">No se pudo analizar el video en este navegador.</span>'); }
+  finally{ endJob(); await seekTo(t0); detectPose(); }
+};
+
+// Video con el esqueleto: cada fotograma se dibuja y se codifica en H.264 (WebCodecs) dentro de un .mp4 (mp4-muxer)
+async function loadMuxer(){
+  if (window.Mp4Muxer) return window.Mp4Muxer;
+  const url = URL.createObjectURL(new Blob([await embedded('mp4-muxer', 'mp4-muxer.js', 'mp4-muxer')], {type: 'text/javascript'}));
+  await new Promise((res, rej) => { const s = document.createElement('script'); s.src = url; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+  return window.Mp4Muxer;
+}
+async function pickCodec(width, height, framerate){
+  for (const codec of ['avc1.640033', 'avc1.640028', 'avc1.4d0028', 'avc1.42e028', 'avc1.42e01f']){
+    const cfg = {codec, width, height, framerate, bitrate: Math.round(Math.min(12e6, Math.max(1.5e6, width * height * framerate * 0.12))), avc: {format: 'avc'}};
+    try{ if ((await VideoEncoder.isConfigSupported(cfg)).supported) return cfg; }catch(e){}
+  }
+  return null;
+}
+async function exportVideo(){
+  if (!vid.src){ $('#expStatus').innerHTML = '<span class="warn-box">Cargue primero un video.</span>'; return; }
+  if (!window.VideoEncoder || !window.VideoFrame){ $('#expStatus').innerHTML = '<span class="warn-box">Este navegador no puede crear videos. Use Chrome o Edge actualizados.</span>'; return; }
+  if (job) return;
+  $('#expStatus').textContent = ''; $('#motPanel').hidden = true;
+  const T = ensureTrack(), t0 = vid.currentTime, max = +$('#vidSize').value;
+  const k = Math.min(1, max / Math.max(vid.videoWidth, vid.videoHeight));
+  const w = Math.round(vid.videoWidth * k / 2) * 2, h = Math.round(vid.videoHeight * k / 2) * 2;
+  const withSubs = $('#vidSubs').checked, blur = $('#blurFace').checked, angles = $('#showAngles').checked;
+  // Franja de subtítulos de alto fijo, para que todos los fotogramas midan lo mismo
+  const subH = withSubs ? fixedSubtitles(['x'], w).height : 0, H = h + subH + (subH % 2);
+  const cfg = await pickCodec(w, H, T.fps);
+  if (!cfg){ $('#expStatus').innerHTML = '<span class="warn-box">Este navegador no puede codificar video H.264 de este tamaño. Pruebe con «Reducido».</span>'; return; }
+  startJob(JOB_EXP);
+  let encoder = null, failed = null;
+  try{
+    const M = await loadMuxer();
+    const muxer = new M.Muxer({target: new M.ArrayBufferTarget(), video: {codec: 'avc', width: w, height: H, frameRate: T.fps}, fastStart: 'in-memory', firstTimestampBehavior: 'offset'});
+    encoder = new VideoEncoder({output: (chunk, meta) => muxer.addVideoChunk(chunk, meta), error: e => { failed = e; }});
+    encoder.configure(cfg);
+    await loadPose();
+    const c = document.createElement('canvas'); c.width = w; c.height = H;
+    const g = c.getContext('2d'), key = Math.max(1, Math.round(T.fps * 2)), scale = w / 640, idx = rangeIdx(T);
+    // El video exportado empieza en el inicio del tramo
+    for (let k = 0; k < idx.length; k++){
+      const i = idx[k];
+      if (job.cancel) break;
+      if (failed) throw failed;
+      await seekTo(frameTime(i, T));
+      if (!T.ok[i]){
+        const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+        setTrack(T, i, res.landmarks && res.landmarks[0], res.worldLandmarks && res.worldLandmarks[0]);
+      }
+      const det = detFromTrack(T, i);
+      g.fillStyle = '#141414'; g.fillRect(0, 0, w, H);
+      g.drawImage(vid, 0, 0, w, h);
+      if (det){
+        if (blur) pixelateFace(g, det.N, w, h);
+        drawSkeleton(g, det.N, w, h, scale);
+        if (angles) drawAngles(g, det, w, h, scale);
+      }
+      if (withSubs){
+        const sub = fixedSubtitles(det ? detLines(det) : ['No se detectó ninguna persona'], w);
+        g.save(); g.fillStyle = '#141414'; g.fillRect(0, h, w, H - h); g.restore();
+        drawSubtitles(g, {...sub, height: H - h}, w, h);
+      }
+      const frame = new VideoFrame(c, {timestamp: Math.round(k * 1e6 / T.fps), duration: Math.round(1e6 / T.fps)});
+      encoder.encode(frame, {keyFrame: k % key === 0}); frame.close();
+      while (encoder.encodeQueueSize > 4) await new Promise(r => setTimeout(r, 4));
+      if (k % 3 === 0){
+        $('#expJobBar').value = (k + 1) / idx.length;
+        $('#expJobText').textContent = `Creando el video: fotograma ${k + 1} de ${idx.length}…`;
+        await yieldUI();
+      }
+    }
+    if (job.cancel){ $('#expStatus').textContent = 'Exportación cancelada. Lo analizado se conserva.'; return; }
+    $('#expJobText').textContent = 'Terminando el archivo…';
+    await encoder.flush();
+    if (failed) throw failed;
+    muxer.finalize();
+    const r = getRange(), sec = v => `${Math.floor(v / 60)}m${pad(Math.floor(v % 60))}s`;
+    const name = (videoBase() || 'video') + ' - esqueleto' + (r.all ? '' : ` ${sec(r.a)}-${sec(r.b)}`) + '.mp4';
+    downloadBlob(new Blob([muxer.target.buffer], {type: 'video/mp4'}), name);
+    $('#expStatus').textContent = `Video descargado: ${name} (${idx.length} fotogramas, ${w}×${H} px).`;
+  }catch(e){
+    console.error(e);
+    $('#expStatus').innerHTML = '<span class="warn-box">No se pudo crear el video en este navegador.</span>';
+  }finally{
+    try{ if (encoder && encoder.state !== 'closed') encoder.close(); }catch(e){}
+    endJob(); await seekTo(t0); detectPose();
+  }
+}
+$('#expVideo').onclick = exportVideo;
+
+// ---- Exportar a OpenSim ----
+//@@COPY 1963-1965@@
+// Posturas elegidas (todo el video o los fotogramas guardados), en orden de tiempo y con los ejes de OpenSim
+async function poseList(box){
+  if ($('#motSrc').value === 'frames'){
+    const list = S.frames.filter(f => f.w3).map(f => ({t: f.t, w3: f.w3, label: `Fotograma ${S.frames.indexOf(f) + 1}`}));
+    return {list, skipped: S.frames.length - list.length};
+  }
+  if (!vid.src) throw new Error('Cargue primero el video para calcular las posturas de todo el video.');
+  const T = ensureTrack(), rate = +$('#motRate').value, step = rate ? Math.max(1, Math.round(T.fps / rate)) : 1;
+  const idx = rangeIdx(T).filter((i, k) => k % step === 0);
+  if (idx.some(i => !T.ok[i])){
+    const t0 = vid.currentTime;
+    const ok = await analyze(T, idx, box, 'Detectando la postura');
+    await seekTo(t0);
+    if (!ok) return null;
+  }
+  const list = idx.filter(i => T.ok[i] === 1).map(i => { const p = getTrack(T, i); return {t: i / T.fps, w3: p.W.map(q => [q.x, q.y, q.z]), label: fmtTime(i / T.fps)}; });
+  return {list, skipped: idx.length - list.length};
+}
+function trcRows(list){
+  let prev = -Infinity;
+  return list.slice().sort((a, b) => a.t - b.t).map(o => {
+    const r = {o, t: Math.max(o.t, prev + 0.001)};   // TRC exige tiempos crecientes
+    prev = r.t;
+    // MediaPipe: x derecha de la imagen, y abajo, z hacia el fondo. OpenSim: X adelante, Y arriba, Z derecha.
+    const P = o.w3, conv = q => [-q[2], -q[1], -q[0]];
+    const ground = Math.min(...[27, 28, 29, 30, 31, 32].map(k => conv(P[k])[1]));   // apoya los pies en Y = 0
+    r.pts = Object.fromEntries(TRC_MARKERS.map(m => { const c = conv(P[m[0]]); return [m[1], [c[0], c[1] - ground, c[2]]]; }));
+    return r;
+  });
+}
+function buildTRC(rows, name){
+  const span = rows.at(-1).t - rows[0].t, rate = rows.length > 1 && span > 0 ? (rows.length - 1) / span : 1;
+  const f = v => v.toFixed(5), T = '\t', n = TRC_MARKERS.length;
+  const lines = [
+    ['PathFileType', 4, '(X/Y/Z)', name].join(T),
+    ['DataRate', 'CameraRate', 'NumFrames', 'NumMarkers', 'Units', 'OrigDataRate', 'OrigDataStartFrame', 'OrigNumFrames'].join(T),
+    [rate.toFixed(6), rate.toFixed(6), rows.length, n, 'm', rate.toFixed(6), 1, rows.length].join(T),
+    ['Frame#', 'Time', ...TRC_MARKERS.flatMap(m => [m[1], '', ''])].join(T),
+    ['', '', ...TRC_MARKERS.flatMap((m, i) => [`X${i + 1}`, `Y${i + 1}`, `Z${i + 1}`])].join(T),
+    ''
+  ];
+  rows.forEach((r, i) => lines.push([i + 1, r.t.toFixed(4), ...TRC_MARKERS.flatMap(m => r.pts[m[1]].map(f))].join(T)));
+  return lines.join('\n') + '\n';
+}
+const exportBase = () => videoBase() || (fileName || 'analisis').replace(/\.apo$/i, '');
+async function exportTRC(){
+  if (job) return;
+  $('#expStatus').textContent = '';
+  startJob(JOB_EXP);
+  try{
+    const r = await poseList(JOB_EXP);
+    if (!r) { $('#expStatus').textContent = 'Cancelado.'; return; }
+    if (!r.list.length){ $('#expStatus').innerHTML = '<span class="warn-box">No hay posturas detectadas para exportar.</span>'; return; }
+    const name = exportBase() + ' - marcadores.trc';
+    downloadBlob(new Blob([buildTRC(trcRows(r.list), name)], {type: 'text/plain'}), name);
+    $('#expStatus').textContent = `Archivo descargado con ${r.list.length} posturas.` + (r.skipped ? ` ${r.skipped} sin persona detectada no se incluyeron.` : '');
+  }catch(e){ console.error(e); $('#expStatus').innerHTML = `<span class="warn-box">${esc(e.message || 'No se pudo exportar.')}</span>`; }
+  finally{ endJob(); }
+}
+//@@COPY 2004-2009@@
+//@@COPY 2010-2278@@
+let ikResult = null;
+const MOT_DATA = {rajagopal2016: 'os-model', wilkinson2021: 'os-wilk'};
+//@@COPY 2282-2287@@
+async function exportMOT(){
+  if (job) return;
+  $('#motPanel').hidden = true; ikResult = null; $('#expStatus').textContent = '';
+  startJob(JOB_EXP);
+  try{
+    const r = await poseList(JOB_EXP);
+    if (!r){ $('#expStatus').textContent = 'Cancelado.'; return; }
+    if (!r.list.length){ $('#expStatus').innerHTML = '<span class="warn-box">No hay posturas detectadas para calcular.</span>'; return; }
+    const key = $('#motModel').value, cfg = IK_MODELS[key];
+    const data = JSON.parse(new TextDecoder().decode(await embedded(MOT_DATA[key], cfg.file, 'opensim')));
+    const rows = trcRows(r.list), s = ikSetup(data, rows, cfg), frames = [];
+    // En una secuencia continua, cada postura parte de la anterior (más rápido); con pocas posturas sueltas, de varias posturas iniciales
+    const fast = $('#motSrc').value === 'video' && rows.length > 30;
+    let prev = null, t1 = performance.now();
+    for (let i = 0; i < rows.length; i++){
+      if (job.cancel){ $('#expStatus').textContent = 'Cálculo cancelado.'; return; }
+      const f = ikFrame(s, s.aligned[i], prev, fast);
+      prev = f.p; frames.push({...f, o: rows[i].o});
+      if (performance.now() - t1 > 60){
+        t1 = performance.now();
+        $('#expJobBar').value = (i + 1) / rows.length;
+        $('#expJobText').textContent = `Calculando los ángulos: postura ${i + 1} de ${rows.length}…`;
+        await yieldUI();
+      }
+    }
+    ikResult = {s, key, frames, skipped: r.skipped};
+    renderMot();
+  }catch(e){
+    console.error(e);
+    $('#expStatus').innerHTML = `<span class="warn-box">${esc(e.message && /video/.test(e.message) ? e.message : 'No se pudieron calcular los ángulos.')}</span>`;
+  }finally{ endJob(); }
+}
+const motFrames = () => $('#motOnlyOk').checked ? ikResult.frames.filter(f => !f.why.length) : ikResult.frames;
+function renderMot(){
+  const {frames, skipped} = ikResult, bad = frames.filter(f => f.why.length);
+  $('#motSummary').textContent = `${frames.length - bad.length} de ${frames.length} posturas son fiables.` + (skipped ? ` ${skipped} sin persona detectada no se incluyeron.` : '');
+  $('#motList').innerHTML = bad.slice(0, 200).map(f => `<li>${esc(f.o.label)}: ${esc(f.why.join('; '))}</li>`).join('') + (bad.length > 200 ? `<li>… y ${bad.length - 200} más (vea el archivo de calidad)</li>` : '');
+  $('#motList').hidden = !bad.length;
+  $('#motHelp').innerHTML = MOT_HELP[ikResult.key];
+  $('#motPanel').hidden = false;
+  updateMotSave();
+  $('#motPanel').scrollIntoView({block: 'nearest'});
+}
+function updateMotSave(){
+  const n = motFrames().length;
+  $('#motSave').disabled = !n;
+  $('#motSave').textContent = n ? `Descargar .mot (${n})` : 'Sin posturas fiables';
+}
+function saveMot(){
+  const name = exportBase() + (ikResult.key === 'wilkinson2021' ? ' - angulos cuerpo completo.mot' : ' - angulos.mot');
+  downloadBlob(new Blob([buildMOT(ikResult.s, motFrames(), name)], {type: 'text/plain'}), name);
+}
+function saveMotCsv(){
+  const rows = ikResult.frames.map(f => [f.t.toFixed(3), f.trunk.toFixed(1), f.rms.toFixed(1), f.max.toFixed(1), f.why.length ? 'no' : 'si', f.why.join('; ')].join(','));
+  downloadBlob(new Blob(['﻿' + ['tiempo_s,tronco_grados,error_rms_cm,error_max_cm,fiable,motivos', ...rows].join('\r\n') + '\r\n'], {type: 'text/csv'}), exportBase() + ' - calidad.csv');
+}
+//@@COPY 2337-2345@@
+$('#expMot').onclick = exportMOT; $('#expTrc').onclick = exportTRC; $('#motSave').onclick = saveMot; $('#motCsv').onclick = saveMotCsv; $('#motOsim').onclick = saveOsim; $('#motOnlyOk').onchange = updateMotSave;
+$('#motModel').onchange = () => { $('#motPanel').hidden = true; ikResult = null; $('#expStatus').textContent = ''; updateModelInfo(); };
+$('#motSrc').onchange = () => { $('#motRateBox').hidden = $('#motSrc').value !== 'video'; $('#motPanel').hidden = true; ikResult = null; };
+updateModelInfo();
+$('#expClose').onclick = () => { if (job) job.cancel = true; $('#exportDlg').close(); };
+$('#exportDlg').addEventListener('cancel', e => { if (job) e.preventDefault(); });
+
+// ---- Teclado ----
+document.addEventListener('keydown', e => {
+  if (e.target.matches('input,select,textarea') || e.ctrlKey || e.metaKey || e.altKey || $('dialog[open]') || job) return;
+  const k = e.key;
+  if (!vid.src || (e.target.matches('button,a,summary') && (k === 'Enter' || k === ' '))) return;
+  const step = e.shiftKey ? 1 : 1 / fps();
+  if (k === 'ArrowLeft'){ seekBy(-step); e.preventDefault(); }
+  else if (k === 'ArrowRight'){ seekBy(step); e.preventDefault(); }
+  else if (k === ' '){ togglePlay(); e.preventDefault(); }
+  else if (k === 'Enter'){ saveFrame(); e.preventDefault(); }
+  else if (k === 'd' || k === 'D') detectPose(true);
+  else if (k === 'i' || k === 'I') setRange('a');
+  else if (k === 'o' || k === 'O') setRange('b');
+  else if (k === 'n' || k === 'N') gotoSaved(1);
+  else if (k === 'b' || k === 'B') gotoSaved(-1);
+});
+
+// ---- Ayuda ----
+$('#helpBox').innerHTML = `<h2>${ico('help')}Ayuda</h2>
+<p>Análisis Postural OpenSim detecta la postura de una persona en un video, dibuja su esqueleto con los ángulos de las articulaciones y exporta el video con ese dibujo y los ángulos articulares para OpenSim (.mot). Es un proyecto derivado de <a href="https://github.com/leolira0568/owas-web" target="_blank" rel="noopener">OWAS Web</a>, sin codificación OWAS ni gráficas de resultados.</p>
+<h3>Pasos</h3>
+<ol><li><b>Cargue el video</b> (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real. Con el video en pausa, cada fotograma se detecta al llegar a él; <b>Detectar postura</b> (tecla <span class="kbd">D</span>) lo vuelve a detectar.</li>
+<li>Indique los <b>fotogramas por segundo</b> con los que se recorre el video al analizarlo y exportarlo (normalmente, los del video: 30 o 60).</li>
+<li>Para trabajar solo con una parte del video, marque el <b>tramo</b>: vaya al momento en que empieza y pulse <b>Inicio aquí</b> (tecla <span class="kbd">I</span>), y al momento en que termina y pulse <b>Fin aquí</b> (tecla <span class="kbd">O</span>). El tramo se ve como una franja sobre la barra de tiempo. El análisis, el video exportado, el .mot y el .trc usan solo ese tramo; <b>Todo el video</b> lo quita. La reproducción y los fotogramas guardados no dependen del tramo.</li>
+<li><b>Analizar todo el video</b> (o <b>Analizar el tramo</b>) detecta la postura en cada fotograma. Después, la reproducción muestra el esqueleto de todos los fotogramas sin saltos. No es obligatorio: exportar el video o el .mot analiza lo que falte.</li>
+<li><b>Guardar fotograma</b> (tecla <span class="kbd">Enter</span>) conserva la imagen del momento actual, con su postura, sus ángulos y una nota. Aparecen en «Fotogramas guardados» y como marcas numeradas bajo la barra de tiempo.</li>
+<li><b>Exportar</b>: el video con el esqueleto (.mp4), los ángulos articulares para OpenSim (.mot) de todo el video o de los fotogramas guardados, y los marcadores 3D (.trc).</li>
+<li><b>Guardar</b> crea un proyecto .apo con los fotogramas guardados y el análisis del video. El video no se copia dentro: al abrir el proyecto, vuelva a cargarlo.</li></ol>
+<h3>Postura</h3>
+<p class="small">Los subtítulos describen la espalda (recta, inclinada, girada o inclinada y girada), los brazos (cuántos quedan por encima del hombro) y las piernas (sentado, de pie con las piernas rectas o flexionadas, sobre una pierna, arrodillado o caminando), con la inclinación del tronco respecto de la vertical, su giro y su inclinación lateral, y el ángulo de las rodillas (180° = extendida). Los límites se cambian en «Ajustes de detección». El esqueleto muestra los ángulos de codos, hombros, caderas y rodillas medidos en 3D. El giro de la espalda es la medida menos fiable.</p>
+<h3>OpenSim</h3>
+<p class="small">El .mot se calcula en este equipo, sin instalar OpenSim, ajustando el modelo elegido a los puntos 3D de cada postura (cinemática inversa). Antes de descargar, la aplicación señala las posturas poco fiables y, por defecto, las excluye. Para verlo: abra el modelo en OpenSim con <i>File → Open Model</i> («Descargar modelo» lo descarga) y cargue el .mot con <i>File → Load Motion</i>. El modelo queda apoyado en el suelo. Con «Todo el video», «Muestras por segundo» indica cuántas posturas por segundo se calculan: más muestras dan un movimiento más suave, pero tardan más.</p>
+<h3>Video exportado</h3>
+<p class="small">El video se crea en el navegador, fotograma a fotograma, en formato MP4 (H.264) y sin sonido. Necesita Chrome o Edge actualizados. Tarda más que la duración del video, porque se detecta cada fotograma que aún no esté analizado.</p>
+<h3 id="privacidad" style="margin-top:18px">Privacidad y seguridad</h3>
+<ul class="small">
+<li><b>Todo se procesa en este equipo.</b> El video, la detección de posturas, el cálculo de los ángulos y la creación del video exportado ocurren dentro del navegador. La aplicación no envía datos a ningún servidor, no usa cookies, ni analítica, ni servicios externos. MediaPipe y su modelo van incluidos en el propio archivo.</li>
+<li><b>Sin conexiones de red.</b> Una política de seguridad de contenido (CSP) impide que la aplicación se conecte a servidores externos. La única excepción es «Descargar modelo» del cuerpo completo, que abre su página de descarga en GitHub.</li>
+<li><b>Rostros difuminados.</b> Con «Difuminar el rostro» (en «Ajustes de detección», activado por defecto), la cara de la persona detectada se pixela en las imágenes guardadas y en el video exportado. Solo funciona cuando la detección encuentra a la persona: revise el resultado antes de compartirlo.</li>
+<li><b>Dónde quedan los datos.</b> En el autoguardado de este navegador, hasta que lo borre, y en los archivos que usted guarda o exporta (.apo, .mp4, .mot, .trc y .csv). Los proyectos y los videos exportados contienen datos personales. Los proyectos y los .trc guardan además los puntos 3D del cuerpo.</li>
+<li><b>Versión en línea.</b> GitHub Pages sirve el archivo de la aplicación y puede registrar datos técnicos de la visita, como la dirección IP. Los datos del análisis no se envían. Para la máxima privacidad, use el archivo descargado y sin conexión.</li>
+</ul>
+<p class="small">Informe a las personas grabadas del propósito del análisis y obtenga su consentimiento; grabe solo lo necesario; guarde los videos y proyectos en carpetas protegidas, y elimínelos cuando ya no los necesite, de acuerdo con la normativa de protección de datos de su país.</p>
+<div class="privacy-actions small">
+<label><input type="checkbox" id="autosaveToggle" checked autocomplete="off"> Guardar automáticamente el trabajo en este navegador</label>
+<button class="btn danger" id="wipeData" type="button">Borrar los datos guardados en este navegador</button>
+<span id="privStatus" role="status" class="muted"></span>
+</div>
+<h3>Licencias</h3>
+<p class="small muted">Análisis Postural OpenSim ${VERSION}, © 2026 Leonardo Lira, licencia MIT. Detección de posturas con MediaPipe Pose (© Google LLC, licencia Apache 2.0). Modelo Rajagopal 2016 (© 2015 Stanford University, licencia MIT). Modelo de cuerpo completo de Ross Wilkinson (© 2021, licencia MIT). mp4-muxer (© 2023 Vanilagy, licencia MIT). Todos van incluidos en este archivo, salvo la geometría del modelo de cuerpo completo, que se descarga aparte.</p>`;
+function showPrivacy(){ $('.help-details').open = true; $('#privacidad').scrollIntoView({behavior: 'smooth', block: 'start'}); }
+$('#privacyLink').addEventListener('click', e => { e.preventDefault(); showPrivacy(); });
+$('#autosaveToggle').checked = autosaveOn;
+$('#autosaveToggle').addEventListener('change', async e => {
+  autosaveOn = e.target.checked;
+  try{ localStorage.setItem('apos.autosave', autosaveOn ? 'on' : 'off'); }catch(err){}
+  if (autosaveOn) persist();
+  else { clearTimeout(persistTimer); try{ await idb.del('autosave'); }catch(err){} }
+  $('#privStatus').textContent = autosaveOn ? 'Autoguardado activado.' : 'Autoguardado desactivado y copia borrada de este navegador.';
+});
+$('#wipeData').addEventListener('click', async () => {
+  if (job) return;
+  if (!confirm('Se borrarán los datos guardados en este navegador (autoguardado y preferencias) y se cerrará el proyecto abierto sin guardarlo. ¿Continuar?')) return;
+  loadState(blank(), '', null); clearTimeout(persistTimer);
+  try{ await idb.del('autosave'); }catch(e){}
+  try{ Object.keys(localStorage).filter(k => /^apos\./.test(k)).forEach(k => localStorage.removeItem(k)); }catch(e){}
+  if (vid.src){ URL.revokeObjectURL(vid.src); vid.removeAttribute('src'); vid.load(); videoName = ''; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load'); }
+  autosaveOn = true; $('#autosaveToggle').checked = true;
+  clearOverlay(); renderAll();
+  $('#privStatus').textContent = 'Datos de este navegador borrados.';
+});
+
+// ---- Inicio ----
+document.querySelector('.top .actions').addEventListener('click', e => {
+  const a = e.target.closest('[data-act]'); if (!a || job) return;
+  ({new: newFile, open: openFile, save: () => saveFile(false), saveas: () => saveFile(true), export: () => { $('#expStatus').textContent = ''; $('#motPanel').hidden = true; $('#exportDlg').showModal(); }, theme: toggleTheme})[a.dataset.act]();
+});
+$('#restoredClose').onclick = () => $('#restored').hidden = true;
+window.addEventListener('beforeunload', e => { if (dirty || job){ e.preventDefault(); e.returnValue = ''; } });
+$$('.top .actions button').forEach(el => { const t = el.textContent.trim(); el.setAttribute('aria-label', t); el.innerHTML = `<span class="lbl">${t}</span>`; });
+$$('[data-icon]').forEach(el => el.insertAdjacentHTML('afterbegin', ico(el.dataset.icon)));
+const toTop = $('#toTop');
+window.addEventListener('scroll', () => { toTop.hidden = window.scrollY < 400; }, {passive: true});
+toTop.onclick = () => window.scrollTo({top: 0, behavior: 'smooth'});
+//@@COPY 2517-2530@@
+function renderAll(){ renderHeader(); renderFrames(); renderMarks(); renderDup(); renderRange(); }
+renderVideoUI();
+(async () => {
+  let saved = null;
+  if (autosaveOn){ try{ saved = await idb.get('autosave'); }catch(e){} }
+  if (saved && saved.S && Array.isArray(saved.S.frames)){
+    S = saved.S; fileName = saved.fileName || ''; dirty = !!saved.dirty;
+    if (dirty || S.frames.length || S.track) $('#restored').hidden = false;
+  }
+  renderAll();
+})();
+</script>
+<!-- MediaPipe Tasks Vision 0.10.35 y modelo Pose Landmarker (full), © Google LLC, licencia Apache 2.0; modelos de OpenSim
+     (licencia MIT) y mp4-muxer 5.2.1 (licencia MIT). build.py reemplaza cada marcador por su archivo de vendor/ en base64. -->
+<script type="application/octet-stream" id="mp-bundle">@@MP_BUNDLE@@</script>
+<script type="application/octet-stream" id="mp-loader">@@MP_LOADER@@</script>
+<script type="application/octet-stream" id="mp-wasm">@@MP_WASM@@</script>
+<script type="application/octet-stream" id="mp-model">@@MP_MODEL@@</script>
+<script type="application/octet-stream" id="os-model">@@OS_MODEL@@</script>
+<script type="application/octet-stream" id="os-osim">@@OS_OSIM@@</script>
+<script type="application/octet-stream" id="os-wilk">@@OS_WILK@@</script>
+<script type="application/octet-stream" id="mp4-muxer">@@MUXER@@</script>
+</body>
+</html>
