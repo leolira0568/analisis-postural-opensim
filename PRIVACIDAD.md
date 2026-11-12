@@ -25,7 +25,7 @@ Análisis Postural OpenSim está diseñada para proteger la identidad de las per
 ## Dónde quedan los datos
 
 - En el **autoguardado del navegador** del equipo, hasta que el usuario lo borre o lo desactive.
-- En los **archivos que el usuario guarda o exporta**: proyectos `.apo`, videos `.mp4` y archivos para OpenSim (`.mot`, `.trc` y `.csv`) y para 3DSSPP (`.sloc` y archivos de lote). Los proyectos y los videos exportados contienen datos personales. Los proyectos, los `.trc` y los archivos para 3DSSPP guardan además los puntos 3D del cuerpo de la persona.
+- En los **archivos que el usuario guarda o exporta**: proyectos `.apo`, videos `.mp4` y archivos para OpenSim (`.mot`, `.trc` y `.csv`) y para 3DSSPP (`.sloc`, `.c3d` y archivos de lote). Los proyectos y los videos exportados contienen datos personales. Los proyectos, los `.trc`, los `.c3d` y los archivos para 3DSSPP guardan además los puntos 3D del cuerpo de la persona.
 
 ## Versión en línea
 

@@ -5,7 +5,7 @@ Herramienta libre y de código abierto que detecta la postura de una persona en 
 - el **video con el esqueleto** (`.mp4`), con los ángulos y la descripción de la postura en subtítulos;
 - los **ángulos articulares para OpenSim** (`.mot`), calculados en el propio navegador, de todo el video o de fotogramas elegidos;
 - los **marcadores 3D** (`.trc`);
-- las **posturas para 3DSSPP** (`.sloc` o archivo de lote), el programa de análisis biomecánico de la Universidad de Míchigan.
+- las **posturas para 3DSSPP** (`.sloc`, archivo de lote o `.c3d`), el programa de análisis biomecánico de la Universidad de Míchigan.
 
 Es un proyecto derivado de [OWAS Web](https://github.com/leolira0568/owas-web), sin codificación OWAS ni gráficas de resultados. Conserva su detección de posturas, todos sus ajustes de detección y su cálculo de ángulos para OpenSim.
 
@@ -26,7 +26,8 @@ Es **un solo archivo HTML** que funciona sin instalación ni conexión a interne
   - **Video con esqueleto (`.mp4`)**: del video completo o del tramo elegido; se crea en el navegador, fotograma a fotograma, en H.264 y sin sonido, con el esqueleto, los ángulos, el rostro difuminado y una franja de subtítulos debajo de la imagen. Necesita Chrome o Edge actualizados (WebCodecs).
   - **OpenSim (`.mot`)**: ángulos articulares del modelo de **cuerpo completo** (por defecto) o de **Rajagopal 2016**, de todo el video o del tramo (todos los fotogramas, o 10, 5 o 1 muestras por segundo) o solo de los fotogramas guardados. Señala las posturas poco fiables, permite excluirlas y descarga una revisión de calidad (`.csv`). El modelo queda apoyado en el suelo.
   - **Marcadores (`.trc`)**: los puntos 3D del cuerpo, con las mismas posturas.
-  - **3DSSPP** *(nuevo en 1.1)*: las mismas posturas como posiciones de las articulaciones en cm, en los ejes de 3DSSPP. El **`.sloc`** se abre con *Animation → Import LOC File* (una postura por fotograma, con la fuerza indicada en cada mano). El **archivo de lote** se ejecuta con *Task Input → Run Batch File*: analiza todas las posturas con el sexo, la estatura y el peso indicados (o el percentil 50), la fuerza en cada mano y la persona de pie o sentada según la postura detectada, y guarda los resultados en `…_export.txt`. Sigue el formato del manual de 3DSSPP 7.1 (secciones 6.13 y 10.4). La cabeza, C7/T1, la articulación esternoclavicular, L5/S1 y el centro de agarre se estiman a partir de los puntos detectados.
+  - **3DSSPP** *(nuevo en 1.1)*: las mismas posturas como posiciones de las articulaciones en cm, en los ejes de 3DSSPP. El **`.sloc`** se abre con *Animation → Import LOC File* (una postura por fotograma, con la fuerza indicada en cada mano). El **archivo de lote** se ejecuta con *Task Input → Run Batch File*: analiza todas las posturas con el sexo, la estatura y el peso indicados (o el percentil 50), la fuerza en cada mano y la persona de pie o sentada según la postura detectada, y guarda los resultados en `…_export.txt`. Sigue el formato del manual de 3DSSPP 7.1 (secciones 6.13 y 10.4).
+  - **Articulaciones (`.c3d`)** *(nuevo en 1.2)*: los 21 centros articulares que pide 3DSSPP al importar C3D (HEAD, FHED, C7T1, STER, L5S1 y hombros, codos, muñecas, centros de agarre, caderas, rodillas, tobillos y bolas de los pies), en mm y en sus ejes, un fotograma por postura. También lo abren OpenSim y otros programas de análisis de movimiento. La cabeza, C7/T1, la articulación esternoclavicular, L5/S1 y el centro de agarre se estiman a partir de los puntos detectados.
 - **Proyectos `.apo`**: guardan los fotogramas guardados (con sus imágenes) y el análisis del video. El video no se copia dentro: al abrir el proyecto, se vuelve a cargar.
 - **Autoguardado** en el navegador y **tema claro u oscuro**.
 
@@ -46,6 +47,8 @@ Es **un solo archivo HTML** que funciona sin instalación ni conexión a interne
 
 En el modelo de cuerpo completo, la flexión, la inclinación y el giro del tronco se reparten entre la pelvis y las 17 vértebras con proporciones supuestas, no medidas, y el cuello se estima con la nariz y las orejas. La revisión de calidad no comprueba las rodillas: sus ángulos no son fiables. El cálculo, comparado con la cinemática inversa de OpenSim 4.6 en OWAS Web, difirió como máximo 1,4° en el tronco y las piernas en las posturas fiables.
 
+3DSSPP es software de la University of Michigan. Análisis Postural OpenSim no está afiliada a ella ni incluye 3DSSPP: los archivos siguen el formato de importación descrito en el manual de 3DSSPP 7.1, y su uso requiere la licencia correspondiente de 3DSSPP. C3D es un formato abierto ([c3d.org](https://www.c3d.org)).
+
 ## Privacidad
 
 Todo se procesa en el equipo: la aplicación no envía datos a ningún servidor y una política de seguridad de contenido (CSP) le impide conectarse a internet. El rostro de la persona se difumina por defecto en las imágenes guardadas y en el video exportado. Ver [PRIVACIDAD.md](PRIVACIDAD.md).
@@ -61,7 +64,8 @@ Para probar sin compilar, sirva la carpeta por HTTP (`python -m http.server`) y 
 
 ## Versiones
 
-- **1.1**: exportación de las posturas a 3DSSPP, como archivo de ubicaciones `.sloc` o como archivo de lote que analiza todas las posturas y exporta los resultados.
+- **1.2**: exportación de las posturas a C3D, con los 21 centros articulares que pide 3DSSPP.
+- **[1.1](https://github.com/leolira0568/analisis-postural-opensim/releases/tag/v1.1)**: exportación de las posturas a 3DSSPP, como archivo de ubicaciones `.sloc` o como archivo de lote que analiza todas las posturas y exporta los resultados.
 - **[1.0](https://github.com/leolira0568/analisis-postural-opensim/releases/tag/v1.0)**: primera versión, derivada de OWAS Web 4.20. Video con detección en tiempo real (con la tarjeta gráfica si está disponible), tramo del video a analizar y exportar, análisis de todo el video o del tramo, fotogramas guardados con nota, exportación del video con el esqueleto (`.mp4`), del `.mot` de todo el video o de los fotogramas guardados (cuerpo completo por defecto, o Rajagopal 2016) y del `.trc`, y proyectos `.apo`.
 
 ## Licencias
