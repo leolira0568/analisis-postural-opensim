@@ -345,6 +345,7 @@ dialog#exportDlg{max-width:min(640px,94vw)}
       <div class="media-top">
         <button class="btn load" id="loadVideo" data-icon="video">Cargar video</button>
         <span class="muted small" id="videoName">Ningún video cargado</span>
+        <span class="warn-soft small" id="vidNote" role="status" hidden></span>
       </div>
       <div class="stage"><video id="vid" playsinline muted preload="auto"></video><canvas class="overlay" id="ovVideo" aria-hidden="true"></canvas><p class="stage-empty" id="vidEmpty">Cargue un video (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real.</p></div>
       <div class="subs" id="subsVideo" role="status" hidden></div>
@@ -481,7 +482,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad = n => String(n).padStart(2, '0');
-const VERSION = '1.2';
+const VERSION = '1.3';
 
 // ---- Iconos (trazo 24×24) basados en Lucide, https://lucide.dev — licencia ISC, © Lucide Contributors ----
 const ICONS = {
@@ -676,16 +677,42 @@ $('#fileVideo').onchange = e => {
     changed();
   }
   if (vid.src) URL.revokeObjectURL(vid.src);
+  videoFile = f; videoOk = false; videoT = 0; reopen = {n: 0, at: 0};
   videoName = f.name; vid.src = URL.createObjectURL(f);
   $('#videoName').textContent = f.name; $('#vidEmpty').hidden = true; $('#loadVideo').classList.remove('load');
   clearOverlay(); lastDet = null;
 };
-vid.addEventListener('loadedmetadata', () => { renderVideoUI(); renderMarks(); renderRange(); });
+// Se conserva el archivo para poder volver a abrir el video si el navegador deja de reproducirlo
+let videoFile = null, videoOk = false, videoT = 0, reopen = {n: 0, at: 0};
+vid.addEventListener('loadedmetadata', () => { videoOk = true; renderVideoUI(); renderMarks(); renderRange(); });
 ['timeupdate', 'seeked', 'play', 'pause'].forEach(ev => vid.addEventListener(ev, renderVideoUI));
+// Momento del video al que volver si hay que reabrirlo (no cuentan los saltos internos de la detección ni del análisis)
+['timeupdate', 'seeked'].forEach(ev => vid.addEventListener(ev, () => { if (!vid.error && !detecting && !job) videoT = vid.currentTime; }));
+// Un video que ya se reproducía puede fallar después de muchos saltos (el decodificador del navegador se bloquea o
+// se queda sin memoria). En ese caso se vuelve a abrir el mismo archivo en el mismo momento, sin perder el trabajo.
+// Solo si no se puede abrir (o falla una y otra vez) se avisa y se quita el video.
+function reopenVideo(){
+  const t = videoT, rate = vid.playbackRate, old = vid.src;
+  videoOk = false;
+  vid.src = URL.createObjectURL(videoFile);
+  URL.revokeObjectURL(old);
+  vid.addEventListener('loadedmetadata', () => { vid.currentTime = Math.min(t, vid.duration || t); vid.playbackRate = rate; }, {once: true});
+  const note = $('#vidNote'); note.textContent = 'El navegador dejó de reproducir el video y se volvió a abrir en el mismo momento. Puede seguir trabajando.'; note.hidden = false;
+  clearTimeout(reopenVideo.timer); reopenVideo.timer = setTimeout(() => { note.hidden = true; }, 12000);
+}
 vid.addEventListener('error', () => {
   if (!vid.getAttribute('src')) return;
-  alert('El navegador no puede reproducir este video. Use un archivo MP4 (H.264) o WebM.');
-  vid.removeAttribute('src'); videoName = ''; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load');
+  const err = vid.error, code = err ? err.code : 0, detail = `código ${code}${err && err.message ? ', ' + err.message : ''}`;
+  console.warn('Error del video:', detail);
+  if (videoOk && videoFile){
+    const now = Date.now();
+    reopen = {n: now - reopen.at < 60000 ? reopen.n + 1 : 1, at: now};
+    if (reopen.n <= 3){ reopenVideo(); return; }
+  }
+  alert((videoOk ? 'El navegador dejó de reproducir este video varias veces seguidas. Vuelva a cargarlo o pruebe con una copia en MP4 (H.264) de menor resolución.'
+    : 'El navegador no puede reproducir este video. Use un archivo MP4 (H.264) o WebM.') + `\n\nDetalle técnico: ${detail}.`);
+  if (job) job.cancel = true;
+  vid.removeAttribute('src'); videoName = ''; videoFile = null; videoOk = false; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load');
 });
 vid.addEventListener('click', togglePlay);
 $('#seek').addEventListener('input', e => { if (!job) setVideoTime(+e.target.value); });
@@ -1095,7 +1122,35 @@ function renderOverlay(det){
 // Clave del fotograma actual, para saber si la detección sigue vigente
 const mediaKey = () => `${videoName}@${vid.currentTime.toFixed(3)}`;
 let lastDet = null, detecting = false, triedKey = '';
-const seekTo = t => new Promise(res => { if (Math.abs(vid.currentTime - t) < 1e-6 && !vid.seeking){ res(); return; } vid.addEventListener('seeked', res, {once: true}); vid.currentTime = t; });
+// MediaPipe solo debe recibir un fotograma ya decodificado: con un video sin imagen (al saltar o al reabrirlo) su
+// detector queda dañado y todas las detecciones siguientes fallan. Si aun así falla, se descarta y se vuelve a crear
+const frameReady = () => vid.readyState >= 2 && vid.videoWidth > 0 && !vid.error;
+const resetPose = () => { POSE.img = POSE.vid = null; POSE.loading = null; };
+function imgDetect(){
+  if (!frameReady()) return {};
+  try{ return POSE.img.detect(vid); }catch(e){ resetPose(); throw e; }
+}
+function vidDetect(dt){
+  if (!frameReady()) throw new Error('El video no tiene imagen');
+  try{ return POSE.vid.detectForVideo(vid, nextTs(dt)); }catch(e){ resetPose(); throw e; }
+}
+// Salta a un momento y espera a que haya imagen; si el video se reabrió por un error, vuelve a saltar
+async function seekFrame(t){
+  await seekTo(t);
+  if (frameReady()) return;
+  for (let k = 0; k < 60 && !frameReady(); k++) await new Promise(r => setTimeout(r, 150));
+  await seekTo(t);
+  if (!frameReady()) throw new Error('El video dejó de responder. Vuelva a cargarlo e inténtelo de nuevo.');
+}
+// Salto a un momento del video. Termina también si el video falla o tarda demasiado, para que nada quede bloqueado
+const seekTo = t => new Promise(res => {
+  if (Math.abs(vid.currentTime - t) < 1e-6 && !vid.seeking){ res(); return; }
+  let tm = 0;
+  const fin = () => { clearTimeout(tm); vid.removeEventListener('seeked', fin); vid.removeEventListener('error', fin); res(); };
+  tm = setTimeout(fin, 4000);
+  vid.addEventListener('seeked', fin); vid.addEventListener('error', fin);
+  vid.currentTime = t;
+});
 // Promedio punto a punto de varias detecciones de la misma persona
 function averageLandmarks(sets){
   return sets[0].map((_, j) => {
@@ -1107,7 +1162,7 @@ function averageLandmarks(sets){
 // Detección del fotograma actual con el video en pausa: usa el análisis si ya existe para ese fotograma
 async function detectPose(force = false){
   if (detecting || job) return;
-  if (!vid.src || vid.readyState < 2){ setDetectStatus('Cargue primero un video.'); return; }
+  if (!vid.src || !frameReady()){ if (!vid.src) setDetectStatus('Cargue primero un video.'); return; }
   detecting = true; triedKey = mediaKey();
   try{
     vid.pause();
@@ -1117,7 +1172,7 @@ async function detectPose(force = false){
     if (!POSE.img) setDetectStatus('Preparando el detector de posturas (solo la primera vez, unos segundos)…');
     await loadPose();
     setDetectStatus('Detectando…');
-    const key = mediaKey(), res = POSE.img.detect(vid), t0 = vid.currentTime;
+    const key = mediaKey(), res = imgDetect(), t0 = vid.currentTime;
     let N = res.landmarks && res.landmarks[0], W = res.worldLandmarks && res.worldLandmarks[0];
     const drawN = N;
     // Se promedian los puntos del fotograma y de sus vecinos a ±0,1 s para atenuar los errores puntuales
@@ -1126,7 +1181,7 @@ async function detectPose(force = false){
       for (const t of [t0 - 0.1, t0 + 0.1]){
         if (t < 0 || t > vid.duration) continue;
         await seekTo(t);
-        const rr = POSE.img.detect(vid);
+        const rr = imgDetect();
         if (rr.landmarks && rr.landmarks.length) sets.push([rr.landmarks[0], rr.worldLandmarks[0]]);
       }
       await seekTo(t0);
@@ -1145,7 +1200,7 @@ async function detectPose(force = false){
       if (stored) Nw = stored.N;
       else {
         const t1 = t0 >= 0.5 ? t0 - 0.5 : t0 + 0.5 <= vid.duration ? t0 + 0.5 : null;
-        if (t1 != null){ await seekTo(t1); const r2 = POSE.img.detect(vid); await seekTo(t0); if (r2.landmarks && r2.landmarks.length) Nw = r2.landmarks[0]; }
+        if (t1 != null){ await seekTo(t1); const r2 = imgDetect(); await seekTo(t0); if (r2.landmarks && r2.landmarks.length) Nw = r2.landmarks[0]; }
       }
     }
     if (T) setTrack(T, i, N, W);
@@ -1156,7 +1211,8 @@ async function detectPose(force = false){
     renderTrackInfo();
   }catch(e){
     console.error(e);
-    setDetectStatus('<span class="warn">No se pudo usar el detector de posturas en este navegador.</span>');
+    const broken = !POSE.img && !POSE.loading;
+    setDetectStatus(broken ? '<span class="warn">No se pudo detectar la postura en este fotograma. Vuelva a intentarlo.</span>' : '<span class="warn">No se pudo usar el detector de posturas en este navegador.</span>');
   }finally{
     detecting = false;
     if (vid.paused && mediaKey() !== triedKey) scheduleAutoDetect();
@@ -1181,10 +1237,10 @@ function liveFrame(t){
   const i = frameIdx(t, T);
   if (T.ok[i] === 1){ showDet(detFromTrack(T, i)); return; }
   if (!POSE.vid){ loadPose().catch(() => {}); return; }
-  if (liveBusy) return;
+  if (liveBusy || !frameReady()) return;
   liveBusy = true;
   try{
-    const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+    const res = vidDetect(1000 / T.fps);
     const N = res.landmarks && res.landmarks[0], W = res.worldLandmarks && res.worldLandmarks[0];
     setTrack(T, i, N || null, W);
     showDet(N ? detFromTrack(T, i) : null);
@@ -1329,8 +1385,9 @@ async function analyze(T, indices, box, label){
   for (let k = 0; k < todo.length; k++){
     if (job.cancel) return false;
     const i = todo[k];
-    await seekTo(frameTime(i, T));
-    const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+    await seekFrame(frameTime(i, T));
+    if (!POSE.vid) await loadPose();
+    const res = vidDetect(1000 / T.fps);
     setTrack(T, i, res.landmarks && res.landmarks[0], res.worldLandmarks && res.worldLandmarks[0]);
     if (k % 3 === 0){
       $(box.bar).value = (k + 1) / todo.length;
@@ -1395,9 +1452,10 @@ async function exportVideo(){
       const i = idx[k];
       if (job.cancel) break;
       if (failed) throw failed;
-      await seekTo(frameTime(i, T));
+      await seekFrame(frameTime(i, T));
       if (!T.ok[i]){
-        const res = POSE.vid.detectForVideo(vid, nextTs(1000 / T.fps));
+        if (!POSE.vid) await loadPose();
+        const res = vidDetect(1000 / T.fps);
         setTrack(T, i, res.landmarks && res.landmarks[0], res.worldLandmarks && res.worldLandmarks[0]);
       }
       const det = detFromTrack(T, i);
@@ -2083,7 +2141,7 @@ $('#wipeData').addEventListener('click', async () => {
   loadState(blank(), '', null); clearTimeout(persistTimer);
   try{ await idb.del('autosave'); }catch(e){}
   try{ Object.keys(localStorage).filter(k => /^apos\./.test(k)).forEach(k => localStorage.removeItem(k)); }catch(e){}
-  if (vid.src){ URL.revokeObjectURL(vid.src); vid.removeAttribute('src'); vid.load(); videoName = ''; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load'); }
+  if (vid.src){ URL.revokeObjectURL(vid.src); vid.removeAttribute('src'); vid.load(); videoName = ''; videoFile = null; videoOk = false; $('#videoName').textContent = 'Ningún video cargado'; $('#vidEmpty').hidden = false; $('#loadVideo').classList.add('load'); }
   autosaveOn = true; $('#autosaveToggle').checked = true;
   clearOverlay(); renderAll();
   $('#privStatus').textContent = 'Datos de este navegador borrados.';

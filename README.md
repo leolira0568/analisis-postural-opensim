@@ -64,7 +64,8 @@ Para probar sin compilar, sirva la carpeta por HTTP (`python -m http.server`) y 
 
 ## Versiones
 
-- **1.2**: exportación de las posturas a C3D, con los 21 centros articulares que pide 3DSSPP.
+- **1.3**: si el navegador deja de reproducir un video que ya funcionaba (por ejemplo, después de muchos saltos), se vuelve a abrir solo en el mismo momento, también en medio del análisis o de la exportación; y la detección ya no deja de funcionar después de ese error.
+- **[1.2](https://github.com/leolira0568/analisis-postural-opensim/releases/tag/v1.2)**: exportación de las posturas a C3D, con los 21 centros articulares que pide 3DSSPP.
 - **[1.1](https://github.com/leolira0568/analisis-postural-opensim/releases/tag/v1.1)**: exportación de las posturas a 3DSSPP, como archivo de ubicaciones `.sloc` o como archivo de lote que analiza todas las posturas y exporta los resultados.
 - **[1.0](https://github.com/leolira0568/analisis-postural-opensim/releases/tag/v1.0)**: primera versión, derivada de OWAS Web 4.20. Video con detección en tiempo real (con la tarjeta gráfica si está disponible), tramo del video a analizar y exportar, análisis de todo el video o del tramo, fotogramas guardados con nota, exportación del video con el esqueleto (`.mp4`), del `.mot` de todo el video o de los fotogramas guardados (cuerpo completo por defecto, o Rajagopal 2016) y del `.trc`, y proyectos `.apo`.
 
