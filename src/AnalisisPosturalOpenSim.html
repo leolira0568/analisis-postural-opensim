@@ -482,7 +482,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad = n => String(n).padStart(2, '0');
-const VERSION = '1.3';
+const VERSION = '1.4';
 
 // ---- Iconos (trazo 24×24) basados en Lucide, https://lucide.dev — licencia ISC, © Lucide Contributors ----
 const ICONS = {
@@ -948,6 +948,20 @@ function classifyPosture(W, N){
       l = (support ? m.kneeR : m.kneeL) >= CFG.knee ? 3 : 5;
     } else l = Math.min(m.kneeL, m.kneeR) < CFG.knee ? 4 : 2;                       // de pie sobre ambas
   }
+  // Tobillos: ángulo entre la pierna (tobillo → rodilla) y el pie (talón → punta); 90° ≈ neutro,
+  // menos de 90°: flexión dorsal (por ejemplo, en cuclillas); más de 90°: flexión plantar (de puntillas)
+  if ([...P.knee, ...P.ank, ...P.heel, ...P.toe].every(i => vis(i) >= 0.3)){
+    const ankle = k => V.ang(V.sub(W[P.knee[k]], W[P.ank[k]]), V.sub(W[P.toe[k]], W[P.heel[k]]));
+    m.ankleL = ankle(0); m.ankleR = ankle(1);
+  }
+  // Cuello: flexión de la línea de los hombros a las orejas respecto de la prolongación del tronco, en el plano
+  // sagital; positivo hacia adelante y negativo hacia atrás (0° = cabeza en línea con el tronco)
+  if ([7, 8, 11, 12, 23, 24].every(i => vis(i) >= 0.5)){
+    const upT = V.unit(trunk), r = V.unit(V.sub(W[24], W[23]));
+    const fwd = [upT[1] * r[2] - upT[2] * r[1], upT[2] * r[0] - upT[0] * r[2], upT[0] * r[1] - upT[1] * r[0]];
+    const neck = V.rej(V.sub(V.mid(W[7], W[8]), S2), r);
+    m.neck = V.ang(neck, upT) * (V.dot(neck, fwd) < 0 ? -1 : 1);
+  }
   return {b, a, l, m, warn};
 }
 // Desplazamiento de la cadera entre dos fotogramas, en % de la longitud del tronco (para «caminando»)
@@ -965,6 +979,8 @@ function makeDet(N, W, Nwalk){
   const rd = v => Math.round(v);
   const m = {trunk: rd(r.m.trunk), twist: rd(r.m.twist), side: rd(r.m.side), armsUp: r.m.armsUp};
   if (r.m.kneeL != null){ m.kneeL = rd(r.m.kneeL); m.kneeR = rd(r.m.kneeR); }
+  if (r.m.ankleL != null){ m.ankleL = rd(r.m.ankleL); m.ankleR = rd(r.m.ankleR); }
+  if (r.m.neck != null) m.neck = rd(r.m.neck);
   if (r.m.walk != null) m.walk = rd(r.m.walk);
   return {N, W, m, p: {b: r.b, a: r.a, l: r.l}, warn: r.warn};
 }
@@ -972,9 +988,9 @@ function makeDet(N, W, Nwalk){
 function detLines(det){
   const {m, p} = det;
   return [
-    `${POSTURE.b[p.b - 1]} (tronco ${m.trunk}°, giro ${m.twist}°, lateral ${m.side}°)`,
+    `${POSTURE.b[p.b - 1]} (tronco ${m.trunk}°, giro ${m.twist}°, lateral ${m.side}°)` + (m.neck != null ? ` · cuello ${m.neck}°` : ''),
     `${POSTURE.a[p.a - 1]} · ` + (p.l ? POSTURE.l[p.l - 1] : 'Piernas no visibles') +
-      (m.kneeL != null ? ` (rodillas ${m.kneeL}° / ${m.kneeR}°${m.walk != null ? `, desplazamiento ${m.walk} %` : ''})` : '')
+      (m.kneeL != null ? ` (rodillas ${m.kneeL}° / ${m.kneeR}°${m.ankleL != null ? `, tobillos ${m.ankleL}° / ${m.ankleR}°` : ''}${m.walk != null ? `, desplazamiento ${m.walk} %` : ''})` : '')
   ];
 }
 
@@ -997,7 +1013,8 @@ function drawSkeleton(g, N, w, h, scale = 1){
   }
   g.restore();
 }
-// Ángulos de codos, hombros, caderas y rodillas, medidos en 3D (180° = extendido), y la inclinación del tronco
+// Ángulos de codos, hombros, caderas y rodillas, medidos en 3D (180° = extendido), la inclinación del tronco,
+// los tobillos y la flexión del cuello
 const JOINT_ANGLES = [[11,13,15],[12,14,16],[23,11,13],[24,12,14],[11,23,25],[12,24,26],[23,25,27],[24,26,28]];
 function drawAngles(g, det, w, h, scale = 1){
   const N = det.N, W = det.W, vis = i => (N[i].visibility ?? 1) >= 0.3;
@@ -1016,6 +1033,25 @@ function drawAngles(g, det, w, h, scale = 1){
     arcs.push({p: H, from: -Math.PI / 2, to: dir(H, Sh), ref: Math.hypot(Sh[0] - H[0], Sh[1] - H[1]) * 0.7});
     labels.push({x: midX, y: ((N[11].y + N[12].y) * 0.3 + (N[23].y + N[24].y) * 0.2) * h, side: 0, t: `Tronco ${det.m.trunk}°`});
   }
+  // Tobillos: entre la pierna y el pie (90° ≈ neutro)
+  [[0, 25, 27, 31], [1, 26, 28, 32]].forEach(([k, a, j, c]) => {
+    const v = det.m && det.m[k ? 'ankleR' : 'ankleL'];
+    if (v == null || ![a, j, c].every(vis)) return;
+    const J = px(j);
+    arcs.push({p: J, from: dir(J, px(a)), to: dir(J, px(c))});
+    labels.push({x: J[0], y: J[1], side: J[0] >= midX ? 1 : -1, t: `${v}°`});
+  });
+  // Cuello: entre la prolongación del tronco (línea punteada) y la línea de los hombros a las orejas
+  if (det.m && det.m.neck != null && [7, 8, 11, 12, 23, 24].every(vis)){
+    const mid = (i, j) => [(px(i)[0] + px(j)[0]) / 2, (px(i)[1] + px(j)[1]) / 2], H = mid(23, 24), Sh = mid(11, 12), E = mid(7, 8);
+    g.save(); g.lineCap = 'round';
+    for (const [color, wd] of [['rgba(0,0,0,.55)', CFG.skelWidth + 3], [CFG.skelColor, CFG.skelWidth]]){
+      g.strokeStyle = color; g.lineWidth = wd * scale; g.beginPath(); g.moveTo(Sh[0], Sh[1]); g.lineTo(E[0], E[1]); g.stroke();
+    }
+    g.restore();
+    arcs.push({p: Sh, from: dir(H, Sh), to: dir(Sh, E), ref: Math.hypot(E[0] - Sh[0], E[1] - Sh[1]) * 0.9});
+    labels.push({x: E[0], y: E[1], side: E[0] >= midX ? 1 : -1, t: `Cuello ${det.m.neck}°`});
+  }
   g.save();
   // Compás: el arco va de un segmento al otro por el lado del ángulo medido
   const r = CFG.arcSize * scale;
@@ -1023,7 +1059,7 @@ function drawAngles(g, det, w, h, scale = 1){
     const d = Math.atan2(Math.sin(A.to - A.from), Math.cos(A.to - A.from)), [x, y] = A.p;
     if (A.ref){
       g.setLineDash([5 * scale, 4 * scale]); g.strokeStyle = CFG.arcColor; g.lineWidth = 2 * scale;
-      g.beginPath(); g.moveTo(x, y); g.lineTo(x, y - A.ref); g.stroke(); g.setLineDash([]);
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(A.from) * A.ref, y + Math.sin(A.from) * A.ref); g.stroke(); g.setLineDash([]);
     }
     g.beginPath(); g.moveTo(x, y); g.arc(x, y, r, A.from, A.from + d, d < 0); g.closePath();
     g.fillStyle = rgba(CFG.arcColor, .3); g.fill();
@@ -2097,7 +2133,7 @@ $('#helpBox').innerHTML = `<h2>${ico('help')}Ayuda</h2>
 <li><b>Exportar</b>: el video con el esqueleto (.mp4), los ángulos articulares para OpenSim (.mot) de todo el video o de los fotogramas guardados, los marcadores 3D (.trc) y las posturas para 3DSSPP (.sloc, archivo de lote o .c3d).</li>
 <li><b>Guardar</b> crea un proyecto .apo con los fotogramas guardados y el análisis del video. El video no se copia dentro: al abrir el proyecto, vuelva a cargarlo.</li></ol>
 <h3>Postura</h3>
-<p class="small">Los subtítulos describen la espalda (recta, inclinada, girada o inclinada y girada), los brazos (cuántos quedan por encima del hombro) y las piernas (sentado, de pie con las piernas rectas o flexionadas, sobre una pierna, arrodillado o caminando), con la inclinación del tronco respecto de la vertical, su giro y su inclinación lateral, y el ángulo de las rodillas (180° = extendida). Los límites se cambian en «Ajustes de detección». El esqueleto muestra los ángulos de codos, hombros, caderas y rodillas medidos en 3D. El giro de la espalda es la medida menos fiable.</p>
+<p class="small">Los subtítulos describen la espalda (recta, inclinada, girada o inclinada y girada), los brazos (cuántos quedan por encima del hombro) y las piernas (sentado, de pie con las piernas rectas o flexionadas, sobre una pierna, arrodillado o caminando), con la inclinación del tronco respecto de la vertical, su giro y su inclinación lateral, la flexión del cuello (0° = cabeza en línea con el tronco, positivo hacia adelante), el ángulo de las rodillas (180° = extendida) y el de los tobillos (90° ≈ neutro; menos de 90°, flexión dorsal; más de 90°, flexión plantar). Los límites se cambian en «Ajustes de detección». El esqueleto muestra los ángulos de codos, hombros, caderas, rodillas y tobillos medidos en 3D, y la flexión del cuello. El giro de la espalda es la medida menos fiable.</p>
 <h3>OpenSim</h3>
 <p class="small">El .mot se calcula en este equipo, sin instalar OpenSim, ajustando el modelo elegido a los puntos 3D de cada postura (cinemática inversa). Antes de descargar, la aplicación señala las posturas poco fiables y, por defecto, las excluye. Para verlo: abra el modelo en OpenSim con <i>File → Open Model</i> («Descargar modelo» lo descarga) y cargue el .mot con <i>File → Load Motion</i>. El modelo queda apoyado en el suelo. Con «Todo el video», «Muestras por segundo» indica cuántas posturas por segundo se calculan: más muestras dan un movimiento más suave, pero tardan más.</p>
 <h3>3DSSPP</h3>
