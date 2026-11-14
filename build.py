@@ -20,6 +20,7 @@ ASSETS = {
     'OS_OSIM': 'opensim/Rajagopal2016_OWAS.osim',
     'OS_WILK': 'opensim/wilkinson2021.json',
     'MUXER': 'mp4-muxer/mp4-muxer.js',
+    'MP4BOX': 'mp4box/mp4box.all.min.js',
 }
 
 html = (ROOT / 'src' / 'AnalisisPosturalOpenSim.html').read_text(encoding='utf-8')
