@@ -280,6 +280,12 @@ dialog#exportDlg{max-width:min(640px,94vw)}
 .range-band{position:absolute;top:0;height:22px;border-radius:4px;background:var(--accent);opacity:.28;pointer-events:none}
 .range-row{border-top:1px solid var(--line-soft);padding-top:8px;margin-top:10px}
 .range-row .tc{min-width:150px}
+/* Varios videos en el mismo proyecto */
+.playlist{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:center;margin:0 0 6px}
+.pl-item{display:inline-flex;gap:2px}
+.pl-item .btn{min-height:28px;padding:2px 8px;font-size:13px}
+.pl-item .btn.icon-only{padding:2px 4px}
+.pl-item.on .btn:first-child{background:var(--accent);color:var(--accent-ink,#fff)}
 /* Controles del video, compactos */
 #sec-video .vctrl{gap:4px;margin-top:6px}
 #sec-video .vctrl .btn,#sec-video .media-top .btn{min-height:30px;padding:3px 9px;font-size:14px}
@@ -386,12 +392,14 @@ dialog#exportDlg{max-width:min(640px,94vw)}
       </div>
       <div class="media-top">
         <button class="btn load" id="loadVideo" data-icon="video">Cargar video</button>
-        <button class="btn" id="joinVideos" data-icon="layers" title="Unir varios videos cortos en uno, uno tras otro">Unir videos</button>
+        <button class="btn" id="addVideo" data-icon="plus" title="Añadir otro video al final de la lista: los videos se reproducen uno tras otro" hidden>Añadir video</button>
+        <button class="btn" id="joinVideos" data-icon="layers" title="Unir varios videos cortos en un solo archivo, uno tras otro">Unir videos</button>
         <span class="muted small" id="videoName">Ningún video cargado</span>
         <span class="warn-soft small" id="vidNote" role="status" hidden></span>
         <button class="btn" id="saveJoined" data-icon="download" hidden>Guardar el video unido</button>
         <p class="small muted" id="joinInfo" style="flex-basis:100%;margin:0" hidden></p>
       </div>
+      <div class="playlist small" id="playlist" hidden></div>
       <div class="stage"><video id="vid" playsinline muted preload="auto"></video><canvas class="overlay" id="ovVideo" aria-hidden="true"></canvas><p class="stage-empty" id="vidEmpty">Cargue un video (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real.</p></div>
       <div class="subs" id="subsVideo" role="status" hidden></div>
       <div class="timeline"><div class="range-band" id="rangeBand" hidden></div><input type="range" id="seek" min="0" max="0" step="0.01" value="0" aria-label="Posición del video"><div class="marks" id="marks"></div></div>
@@ -449,7 +457,8 @@ dialog#exportDlg{max-width:min(640px,94vw)}
   <p>Detección de posturas: MediaPipe Pose © Google LLC, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mediapipe/LICENSE" target="_blank" rel="noopener">licencia Apache 2.0</a> · Modelo Rajagopal 2016 © Stanford University, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/opensim/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · Modelo de cuerpo completo © Ross Wilkinson, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/opensim/LICENSE-wilkinson" target="_blank" rel="noopener">licencia MIT</a> · mp4-muxer © Vanilagy, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mp4-muxer/LICENSE" target="_blank" rel="noopener">licencia MIT</a> · mp4box.js © GPAC, <a href="https://github.com/leolira0568/analisis-postural-opensim/blob/main/vendor/mp4box/LICENSE" target="_blank" rel="noopener">licencia BSD-3</a> · Iconos basados en <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (ISC)</p>
 </footer>
 <input type="file" id="fileOpen" accept=".apo" hidden>
-<input type="file" id="fileVideo" accept="video/*" hidden>
+<input type="file" id="fileVideo" accept="video/*" multiple hidden>
+<input type="file" id="fileAddVideo" accept="video/*" multiple hidden>
 <input type="file" id="fileJoinVideos" accept="video/*" multiple hidden>
 <dialog id="exportDlg" aria-labelledby="exportTitle">
   <h2 id="exportTitle">Exportar</h2>
@@ -528,7 +537,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad = n => String(n).padStart(2, '0');
-const VERSION = '1.7';
+const VERSION = '1.8';
 
 // ---- Iconos (trazo 24×24) basados en Lucide, https://lucide.dev — licencia ISC, © Lucide Contributors ----
 const ICONS = {
@@ -596,7 +605,8 @@ const POSTURE = {
 // ---- Estado ----
 // frames: fotogramas guardados. track: puntos del cuerpo de cada fotograma del video (análisis o detección en tiempo real)
 // range: tramo del video que se analiza y se exporta ({src, a, b} en segundos); null = todo el video
-const blank = () => ({frames: [], track: null, range: null});
+// stash: análisis y tramo de los demás videos del proyecto ({nombre: {track, range}}), mientras se ve otro
+const blank = () => ({frames: [], track: null, range: null, stash: {}});
 let S = blank(), fileName = '', fileHandle = null, dirty = false;
 // Autoguardado en IndexedDB (las imágenes y los puntos de todo el video no caben en localStorage)
 const idb = (() => {
@@ -624,18 +634,20 @@ function changed(){ dirty = true; persist(); renderHeader(); }
 // ---- Proyecto .apo: JSON con los fotogramas guardados (con sus imágenes) y los puntos del cuerpo de todo el video ----
 const b64 = buf => { const u = new Uint8Array(buf), parts = []; for (let i = 0; i < u.length; i += 0x8000) parts.push(String.fromCharCode.apply(null, u.subarray(i, i + 0x8000))); return btoa(parts.join('')); };
 const unb64 = (s, T) => { const bin = atob(s), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return new T(u.buffer); };
+const packTrack = T => T ? {src: T.src, fps: T.fps, n: T.n, N: b64(T.N.buffer), W: b64(T.W.buffer), ok: b64(T.ok.buffer), all: T.all ? b64(T.all.buffer) : null, F: T.F || {}} : null;
+const unpackTrack = T => T ? {src: T.src, fps: T.fps, n: T.n, N: unb64(T.N, Float32Array), W: unb64(T.W, Float32Array), ok: unb64(T.ok, Uint8Array),
+  all: T.all ? unb64(T.all, Uint8Array) : new Uint8Array(T.n), F: T.F || {}} : null;
 function projectBytes(){
-  const T = S.track;
-  const track = T ? {src: T.src, fps: T.fps, n: T.n, N: b64(T.N.buffer), W: b64(T.W.buffer), ok: b64(T.ok.buffer), all: T.all ? b64(T.all.buffer) : null, F: T.F || {}} : null;
-  return new TextEncoder().encode(JSON.stringify({format: 'analisis-postural-opensim', version: 1, S: {...S, track}}));
+  const stash = {};
+  for (const [k, v] of Object.entries(S.stash || {})) stash[k] = {track: packTrack(v.track), range: v.range || null};
+  return new TextEncoder().encode(JSON.stringify({format: 'analisis-postural-opensim', version: 1, S: {...S, track: packTrack(S.track), stash}}));
 }
 function parseProject(text){
   const j = JSON.parse(text);
   if (j.format !== 'analisis-postural-opensim' || !j.S || !Array.isArray(j.S.frames)) throw new Error('not project');
   const st = blank(); st.frames = j.S.frames; st.range = j.S.range || null;
-  const T = j.S.track;
-  if (T) st.track = {src: T.src, fps: T.fps, n: T.n, N: unb64(T.N, Float32Array), W: unb64(T.W, Float32Array), ok: unb64(T.ok, Uint8Array),
-    all: T.all ? unb64(T.all, Uint8Array) : new Uint8Array(T.n), F: T.F || {}};
+  st.track = unpackTrack(j.S.track);
+  for (const [k, v] of Object.entries(j.S.stash || {})) st.stash[k] = {track: unpackTrack(v.track), range: v.range || null};
   return st;
 }
 const FILE_TYPE = {description: 'Proyecto de Análisis Postural OpenSim', accept: {'application/json': ['.apo']}};
@@ -657,16 +669,25 @@ async function openFile(){
   if (!file) return;
   try{ loadState(parseProject(await file.text()), file.name, handle); }
   catch(e){ alert(`"${file.name}" no es un proyecto de Análisis Postural OpenSim.`); return; }
-  const src = S.track ? S.track.src : (S.frames[0] || {}).src;
-  if (src && src !== videoName) alert(`Cargue el video «${src}» para ver el esqueleto y los fotogramas guardados sobre él.`);
+  const names = [...new Set([S.track && S.track.src, ...Object.keys(S.stash || {}), ...S.frames.map(f => f.src)].filter(Boolean))].filter(n => n !== videoName);
+  if (names.length) alert(names.length === 1 ? `Cargue el video «${names[0]}» para ver el esqueleto y los fotogramas guardados sobre él.`
+    : `Este proyecto tiene ${names.length} videos. Cárguelos (puede elegirlos todos a la vez en «Cargar video») para ver el esqueleto y los fotogramas guardados sobre ellos:\n\n${names.join('\n')}`);
 }
 async function saveFile(as){
   const name = fileName || (videoBase() || 'analisis') + '.apo';
   try{
     if (!as && fileHandle){
+      // Ya guardado en este equipo: se sobrescribe el mismo archivo, sin volver a pedir la ubicación. Si el navegador
+      // aún no tiene permiso para escribir en él, su propio aviso hace de advertencia; si no, se avisa aquí
+      const perm = fileHandle.queryPermission ? await fileHandle.queryPermission({mode: 'readwrite'}) : 'granted';
+      if (perm === 'granted'){ if (!confirm(`Se sobrescribirá el archivo «${fileName}» con los cambios actuales. ¿Continuar?`)) return; }
+      else if ((await fileHandle.requestPermission({mode: 'readwrite'})) !== 'granted') return;
       const w = await fileHandle.createWritable(); await w.write(projectBytes()); await w.close();
     } else if (window.showSaveFilePicker){
-      const h = await showSaveFilePicker({suggestedName: name, types: [FILE_TYPE]});
+      // Primera vez o «Guardar como»: el explorador para elegir el nombre y la carpeta (empieza en la del archivo actual)
+      const opts = {suggestedName: name, types: [FILE_TYPE]};
+      if (fileHandle) opts.startIn = fileHandle;
+      const h = await showSaveFilePicker(opts);
       const w = await h.createWritable(); await w.write(projectBytes()); await w.close();
       fileHandle = h; fileName = h.name;
     } else throw new Error('no fs api');
@@ -717,16 +738,70 @@ function gotoSaved(dir){
 }
 $('#marks').addEventListener('click', e => { const b = e.target.closest('[data-go]'); if (b) goToFrame(+b.dataset.go); });
 $('#loadVideo').onclick = () => { if (job) return; const f = $('#fileVideo'); f.value = ''; f.click(); };
-$('#fileVideo').onchange = e => { const f = e.target.files[0]; if (f) loadVideoFile(f); };
+// Varios videos en el mismo proyecto: se reproducen uno tras otro, sin unirlos. Los elegidos a la vez se ordenan por nombre
+// de archivo; «Añadir video» pone los nuevos al final. Cada video conserva su análisis, su tramo y sus fotogramas guardados
+let playlist = [], vi = 0;   // {file, dur}
+const byName = files => [...files].sort((a, b) => a.name.localeCompare(b.name, 'es', {numeric: true}));
+function probeDuration(item){
+  const v = document.createElement('video'), u = URL.createObjectURL(item.file);
+  v.preload = 'metadata'; v.muted = true;
+  v.onloadedmetadata = () => { item.dur = v.duration || 0; URL.revokeObjectURL(u); v.removeAttribute('src'); renderPlaylist(); };
+  v.onerror = () => URL.revokeObjectURL(u);
+  v.src = u;
+}
+function setPlaylist(files, append = false){
+  const items = files.map(file => ({file, dur: 0}));
+  if (append && playlist.length) playlist.push(...items);
+  else { playlist = items; vi = 0; loadVideoFile(items[0].file); }
+  items.forEach(probeDuration);
+  renderPlaylist();
+}
+function switchVideo(k, t = 0, play = false){
+  if (k < 0 || k >= playlist.length || job) return;
+  vi = k; loadVideoFile(playlist[k].file);
+  vid.addEventListener('loadedmetadata', () => { vid.currentTime = Math.min(Math.max(0, t), vid.duration || 0); if (play) vid.play(); }, {once: true});
+  renderPlaylist(); renderAll();
+}
+function renderPlaylist(){
+  const box = $('#playlist');
+  $('#addVideo').hidden = !playlist.length;
+  box.hidden = playlist.length < 2;
+  if (box.hidden){ box.innerHTML = ''; return; }
+  box.innerHTML = `<span class="muted">${playlist.length} videos, se reproducen uno tras otro:</span>` + playlist.map((q, k) =>
+    `<span class="pl-item${k === vi ? ' on' : ''}"><button class="btn" data-vi="${k}" title="Ver ${esc(q.file.name)}"><b>${k + 1}</b>&nbsp;${esc(q.file.name)}${q.dur ? ' · ' + fmtTime(q.dur) : ''}</button><button class="btn icon-only" data-vrm="${k}" title="Quitar de la lista (su análisis y sus fotogramas guardados se conservan)" aria-label="Quitar ${esc(q.file.name)} de la lista">${ico('close')}</button></span>`).join('');
+}
+$('#playlist').addEventListener('click', e => {
+  if (job) return;
+  const a = e.target.closest('[data-vi]'), r = e.target.closest('[data-vrm]');
+  if (a){ switchVideo(+a.dataset.vi); return; }
+  if (!r || playlist.length < 2) return;
+  const k = +r.dataset.vrm;
+  playlist.splice(k, 1);
+  if (k === vi) switchVideo(Math.min(k, playlist.length - 1)); else { if (k < vi) vi--; renderPlaylist(); }
+});
+// Al terminar un video, sigue el siguiente (no durante el análisis ni la exportación)
+vid.addEventListener('ended', () => { if (!job && vi < playlist.length - 1) switchVideo(vi + 1, 0, true); });
+$('#fileVideo').onchange = e => { if (e.target.files.length) setPlaylist(byName(e.target.files)); };
+$('#addVideo').onclick = () => { if (job) return; const f = $('#fileAddVideo'); f.value = ''; f.click(); };
+$('#fileAddVideo').onchange = e => { if (e.target.files.length) setPlaylist(byName(e.target.files), true); };
 function loadVideoFile(f){
   // Un proyecto abierto pertenece a un video: si el archivo se llama distinto, se puede usar igualmente
+  // (no al pasar de un video a otro de la lista, ni si el proyecto ya tiene un análisis de este video)
+  if (!S.stash) S.stash = {};
   const src = S.track ? S.track.src : (S.frames[0] || {}).src;
-  if (src && src !== f.name && confirm(`El proyecto abierto es del video «${src}». ¿Usar «${f.name}» como ese video?\n\nAceptar: los fotogramas guardados y el análisis pasan a este video.\nCancelar: se carga el video sin relacionarlo con el proyecto.`)){
+  if (src && src !== f.name && !S.stash[f.name] && !playlist.some(q => q.file.name === src) && confirm(`El proyecto abierto es del video «${src}». ¿Usar «${f.name}» como ese video?\n\nAceptar: los fotogramas guardados y el análisis pasan a este video.\nCancelar: se carga el video sin relacionarlo con el proyecto.`)){
     S.frames.forEach(fr => { if (fr.src === src) fr.src = f.name; });
     if (S.track) S.track.src = f.name;
     if (S.range) S.range.src = f.name;
     changed();
   }
+  // El análisis y el tramo del video anterior se guardan aparte, y se recuperan los de este video si ya los tenía
+  if (S.track && S.track.src !== f.name) S.stash[S.track.src] = {...S.stash[S.track.src], track: S.track};
+  if (S.range && S.range.src !== f.name) S.stash[S.range.src] = {...S.stash[S.range.src], range: S.range};
+  if (S.track && S.track.src !== f.name) S.track = null;
+  if (S.range && S.range.src !== f.name) S.range = null;
+  const back = S.stash[f.name];
+  if (back){ if (back.track) S.track = back.track; if (back.range) S.range = back.range; delete S.stash[f.name]; }
   if (vid.src) URL.revokeObjectURL(vid.src);
   $('#vidNote').hidden = true;
   videoFile = f; videoOk = false; videoT = 0; reopen = {n: 0, at: 0}; follow = null;
@@ -755,7 +830,7 @@ $('#fileJoinVideos').onchange = async e => {
   btn.disabled = true;
   try{
     const r = await joinVideos(files, say);
-    loadVideoFile(r.file);
+    setPlaylist([r.file]);
     note.textContent = (r.same ? 'Videos unidos sin volver a codificar la imagen.' : 'Videos unidos: se volvieron a codificar porque tenían formatos distintos.') +
       ' Guárdelo con «Guardar el video unido» para poder volver a abrir el proyecto con él.';
     note.hidden = false;
@@ -1058,6 +1133,7 @@ async function openWithoutAudio(){
     const copy = await videoWithoutAudio(f, p => say(`Preparando una copia del video sin sonido… ${Math.round(p * 100)} %`));
     if (videoFile !== f) return;   // mientras tanto se cargó otro video
     videoFile = copy; videoOk = false; reopen = {n: 0, at: 0};
+    if (playlist[vi] && playlist[vi].file === f) playlist[vi].file = copy;
     const old = vid.src;
     vid.src = URL.createObjectURL(copy);
     URL.revokeObjectURL(old);
@@ -1246,7 +1322,7 @@ let poseClock = 0;
 const nextTs = (dt = 1) => (poseClock += Math.max(1, dt));
 
 // Umbrales ajustables (se recuerdan en este navegador)
-const STYLE_DEFAULT = {skelColor: '#7fd1ff', skelWidth: 3, angColor: '#ffd54a', angSize: 12, arcColor: '#4cd964', arcSize: 15,
+const STYLE_DEFAULT = {skelColor: '#ff0000', skelWidth: 1, angColor: '#ffd54a', angSize: 8, arcColor: '#4cd964', arcSize: 8,
   // Partes del cuerpo que se dibujan (esqueleto y ángulos); por defecto, todas
   // sk: esqueleto, an: compás del ángulo, tx: texto del ángulo
   skNeck: true, anNeck: true, txNeck: true, skTrunk: true, anTrunk: true, txTrunk: true, skArms: true, anArms: true, txArms: true,
@@ -1258,6 +1334,8 @@ let CFG = {...CFG_DEFAULT};
 try{ Object.assign(CFG, JSON.parse(localStorage.getItem('apos.detect') || '{}')); }catch(e){}
 const showCfg = () => $$('[data-cfg]').forEach(el => { const k = el.dataset.cfg; if (el.type === 'checkbox') el.checked = !!CFG[k]; else el.value = CFG[k]; });
 const saveCfg = () => { try{ localStorage.setItem('apos.detect', JSON.stringify(CFG)); }catch(err){} };
+// Versión 1.8: nuevo aspecto predeterminado del esqueleto (también para quien ya tenía ajustes guardados)
+if (CFG.styleV !== 2){ Object.assign(CFG, {skelColor: STYLE_DEFAULT.skelColor, skelWidth: STYLE_DEFAULT.skelWidth, angSize: STYLE_DEFAULT.angSize, arcSize: STYLE_DEFAULT.arcSize}); CFG.styleV = 2; saveCfg(); }
 // Un cambio de color o tamaño se ve al instante en el esqueleto de la pantalla
 const redrawSkeleton = () => { if (lastDet && lastDet.key === mediaKey()) renderOverlay(lastDet); };
 showCfg();
@@ -1916,6 +1994,8 @@ $('#clearAll').onclick = () => { if (S.frames.length && confirm('¿Borrar todos 
 function goToFrame(i){
   const f = S.frames[i]; if (!f) return;
   if (f.src === videoName && vid.src && !job){ $('#sec-video').scrollIntoView({behavior: 'smooth', block: 'start'}); setVideoTime(f.t); return; }
+  const k = playlist.findIndex(q => q.file.name === f.src);
+  if (k >= 0 && !job){ $('#sec-video').scrollIntoView({behavior: 'smooth', block: 'start'}); switchVideo(k, f.t); return; }
   openViewer(i);
 }
 let viewIdx = -1;
@@ -2666,13 +2746,14 @@ $('#helpBox').innerHTML = `<h2>${ico('help')}Ayuda</h2>
 <p>Análisis Postural OpenSim detecta la postura de una persona en un video, dibuja su esqueleto con los ángulos de las articulaciones y exporta el video con ese dibujo y los ángulos articulares para OpenSim (.mot).</p>
 <h3>Pasos</h3>
 <ol><li><b>Cargue el video</b> (MP4 o WebM). Al reproducirlo se detectan la postura y el esqueleto en tiempo real. Con el video en pausa, cada fotograma se detecta al llegar a él; <b>Detectar postura</b> (tecla <span class="kbd">D</span>) lo vuelve a detectar. Si hay varias personas, se analiza la más grande y se la sigue de un fotograma a otro; las demás se ven con un esqueleto blanco discontinuo y <b>Detectar otro</b> (tecla <span class="kbd">P</span>) pasa a la siguiente. Si se detecta a alguien donde no hay nadie, <b>No detectar</b> (tecla <span class="kbd">X</span>) quita esa postura del fotograma.</li>
+<li>Para trabajar con varios videos en el mismo proyecto sin unirlos, elíjalos todos en <b>Cargar video</b> (se ordenan por nombre de archivo) o añádalos con <b>Añadir video</b>: se reproducen uno tras otro y la lista de videos permite pasar de uno a otro. Cada video conserva su análisis, su tramo y sus fotogramas guardados; el análisis y el video exportado son los del video que se está viendo.</li>
 <li>Para analizar varios videos cortos como uno solo, pulse <b>Unir videos</b> y elíjalos todos: se unen en el orden de su nombre de archivo, sin sonido. <b>Guardar el video unido</b> lo descarga, para volver a abrir el proyecto con él.</li>
 <li>Indique los <b>fotogramas por segundo</b> con los que se recorre el video al analizarlo y exportarlo (normalmente, los del video: 30 o 60).</li>
 <li>Para trabajar solo con una parte del video, marque el <b>tramo</b>: vaya al momento en que empieza y pulse <b>Inicio aquí</b> (tecla <span class="kbd">I</span>), y al momento en que termina y pulse <b>Fin aquí</b> (tecla <span class="kbd">O</span>). El tramo se ve como una franja sobre la barra de tiempo. El análisis, el video exportado, el .mot y el .trc usan solo ese tramo; <b>Todo el video</b> lo quita. La reproducción y los fotogramas guardados no dependen del tramo.</li>
 <li><b>Analizar todo el video</b> (o <b>Analizar el tramo</b>) detecta la postura en cada fotograma. Después, la reproducción muestra el esqueleto de todos los fotogramas sin saltos. No es obligatorio: exportar el video o el .mot analiza lo que falte.</li>
 <li><b>Guardar fotograma</b> (tecla <span class="kbd">Enter</span>) conserva la imagen del momento actual, con su postura, sus ángulos y una nota. Aparecen en «Fotogramas guardados» y como marcas numeradas bajo la barra de tiempo.</li>
 <li><b>Exportar</b>: el video con el esqueleto (.mp4), los ángulos articulares para OpenSim (.mot) de todo el video, de los fotogramas guardados o solo de los seleccionados (casilla «Seleccionar» de cada uno), los marcadores 3D (.trc) y las posturas para 3DSSPP (.sloc, archivo de lote o .c3d).</li>
-<li><b>Guardar</b> crea un proyecto .apo con los fotogramas guardados y el análisis del video. El video no se copia dentro: al abrir el proyecto, vuelva a cargarlo.</li></ol>
+<li><b>Guardar</b> crea un proyecto .apo con los fotogramas guardados y el análisis de cada video. La primera vez abre el explorador para elegir el nombre y la carpeta; después sobrescribe el mismo archivo, con un aviso, sin volver a preguntar. <b>Guardar como</b> siempre abre el explorador. Los videos no se copian dentro: al abrir el proyecto, vuelva a cargarlos.</li></ol>
 <h3>Postura</h3>
 <p class="small">Los subtítulos describen la espalda (recta, inclinada, girada o inclinada y girada), los brazos (cuántos quedan por encima del hombro) y las piernas (sentado, de pie con las piernas rectas o flexionadas, sobre una pierna, arrodillado o caminando), con la inclinación del tronco respecto de la vertical, su giro y su inclinación lateral, la flexión del cuello (0° = cabeza en línea con el tronco, positivo hacia adelante), el ángulo de las rodillas (180° = extendida) y el de los tobillos (90° ≈ neutro; menos de 90°, flexión dorsal; más de 90°, flexión plantar). Los límites se cambian en «Ajustes de detección». El esqueleto muestra los ángulos de codos, hombros, caderas, rodillas y tobillos medidos en 3D, y la flexión del cuello. El giro de la espalda es la medida menos fiable.</p>
 <h3>OpenSim</h3>
