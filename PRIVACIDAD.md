@@ -7,6 +7,7 @@ Análisis Postural OpenSim está diseñada para proteger la identidad de las per
 - Los videos que el usuario abre. Pueden mostrar rostros y otros rasgos que identifican a una persona.
 - Los puntos del cuerpo detectados en cada fotograma (en la imagen y en 3D), la postura y los ángulos medidos.
 - Los fotogramas guardados: su imagen, su momento en el video, su postura, sus ángulos y la nota que escriba el usuario.
+- La fecha y la hora de grabación y, si el video la tiene, su ubicación GPS, leídas de los datos del video o de su nombre de archivo para mostrarlas en los subtítulos.
 
 ## Dónde se procesan
 
@@ -17,10 +18,11 @@ Análisis Postural OpenSim está diseñada para proteger la identidad de las per
 ## Medidas de seguridad
 
 1. **Sin conexiones de red.** Una política de seguridad de contenido (Content Security Policy) impide que la aplicación se conecte a servidores externos, envíe formularios o cargue código de otros sitios. «Descargar modelo» del cuerpo completo abre su página de descarga en GitHub en una pestaña nueva, sin enviar datos.
-2. **Rostros difuminados.** La opción «Difuminar el rostro en las imágenes guardadas y en el video exportado» (activada por defecto) pixela la cara de la persona detectada, de la frente al mentón, con intensidad suave, media (por defecto) o fuerte. El cuello y la postura de la cabeza siguen visibles, por lo que el pelo, las orejas o la ropa pueden seguir permitiendo reconocer a la persona. Solo funciona en los fotogramas en los que la detección encuentra a la persona: revise el resultado antes de compartirlo.
-3. **Sin sonido ni metadatos.** El video exportado no lleva sonido, y las imágenes y el video se vuelven a codificar, por lo que no conservan datos como la ubicación GPS o el modelo de la cámara.
-4. **Autoguardado opcional.** El trabajo se guarda automáticamente en el navegador del equipo. En equipos compartidos puede desactivarse en *Ayuda, privacidad y licencias*.
-5. **Borrado de datos locales.** El botón «Borrar los datos guardados en este navegador» elimina el autoguardado y las preferencias de la aplicación y cierra el proyecto abierto.
+2. **Rostros difuminados.** La opción «Difuminar el rostro en las imágenes guardadas y en el video exportado» (activada por defecto) pixela la cara de todas las personas detectadas, de la frente al mentón, con intensidad suave, media (por defecto) o fuerte. El cuello y la postura de la cabeza siguen visibles, por lo que el pelo, las orejas o la ropa pueden seguir permitiendo reconocer a la persona. Solo funciona en los fotogramas en los que la detección encuentra a la persona: revise el resultado antes de compartirlo.
+3. **Sin sonido ni metadatos.** El video exportado y el video unido no llevan sonido, y las imágenes y el video exportado se vuelven a codificar, por lo que no conservan datos ocultos como la ubicación GPS o el modelo de la cámara.
+4. **Ubicación desactivada por defecto.** Los subtítulos muestran la fecha y la hora de grabación; la ubicación GPS solo aparece si se activa en «Ajustes de detección → Subtítulos». Si los subtítulos se graban en las imágenes guardadas o en el video exportado, esos datos quedan visibles en ellos: desactívelos si no deben aparecer.
+5. **Autoguardado opcional.** El trabajo se guarda automáticamente en el navegador del equipo. En equipos compartidos puede desactivarse en *Ayuda, privacidad y licencias*.
+6. **Borrado de datos locales.** El botón «Borrar los datos guardados en este navegador» elimina el autoguardado y las preferencias de la aplicación y cierra el proyecto abierto.
 
 ## Dónde quedan los datos
 
