@@ -542,7 +542,7 @@ const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const pad = n => String(n).padStart(2, '0');
-const VERSION = '1.9';
+const VERSION = '1.10';
 
 // ---- Iconos (trazo 24×24) basados en Lucide, https://lucide.dev — licencia ISC, © Lucide Contributors ----
 const ICONS = {
@@ -678,32 +678,47 @@ async function openFile(){
   if (names.length) alert(names.length === 1 ? `Cargue el video «${names[0]}» para ver el esqueleto y los fotogramas guardados sobre él.`
     : `Este proyecto tiene ${names.length} videos. Cárguelos (puede elegirlos todos a la vez en «Cargar videos») para ver el esqueleto y los fotogramas guardados sobre ellos:\n\n${names.join('\n')}`);
 }
+// Escribe en el archivo elegido. OneDrive u otro programa pueden tenerlo ocupado un momento: se reintenta varias veces y,
+// si no se puede, se avisa (sin descargar otra copia por sorpresa, que obligaría a elegir el nombre otra vez)
+async function writeHandle(h, bytes){
+  let err = null;
+  for (let k = 0; k < 6; k++){
+    try{ const w = await h.createWritable(); await w.write(bytes); await w.close(); return null; }
+    catch(e){ err = e; if (e.name === 'NotAllowedError' || e.name === 'SecurityError') break; await new Promise(r => setTimeout(r, 500 + k * 300)); }
+  }
+  console.error(err);
+  return err || new Error('error desconocido');
+}
+const writeFailMsg = (name, err) => `No se pudo escribir en «${name}» (${err.message || err.name}). Suele deberse a que OneDrive u otro programa está sincronizando o usando el archivo, o a que la carpeta no permite escribir.\n\nEl nombre y la carpeta quedan elegidos: pulse «Guardar» de nuevo en unos segundos. Si sigue fallando, use «Guardar como» y elija otra carpeta.\n\n¿Descargar ahora una copia del archivo, por seguridad?`;
 async function saveFile(as){
   const name = fileName || (videoBase() || 'analisis') + '.apo';
-  try{
-    if (!as && fileHandle){
-      // Ya guardado en este equipo: se sobrescribe el mismo archivo, sin volver a pedir la ubicación. Si el navegador
-      // aún no tiene permiso para escribir en él, su propio aviso hace de advertencia; si no, se avisa aquí
+  // Ya guardado en este equipo: se sobrescribe el mismo archivo, sin volver a pedir el nombre ni la carpeta
+  if (!as && fileHandle){
+    try{
       const perm = fileHandle.queryPermission ? await fileHandle.queryPermission({mode: 'readwrite'}) : 'granted';
       if (perm === 'granted'){ if (!confirm(`Se sobrescribirá el archivo «${fileName}» con los cambios actuales. ¿Continuar?`)) return; }
       else if ((await fileHandle.requestPermission({mode: 'readwrite'})) !== 'granted') return;
-      const w = await fileHandle.createWritable(); await w.write(projectBytes()); await w.close();
-    } else if (window.showSaveFilePicker){
-      // Primera vez o «Guardar como»: el explorador para elegir el nombre y la carpeta (empieza en la del archivo actual)
-      const opts = {suggestedName: name, types: [FILE_TYPE]};
-      if (fileHandle) opts.startIn = fileHandle;
-      const h = await showSaveFilePicker(opts);
-      const w = await h.createWritable(); await w.write(projectBytes()); await w.close();
-      fileHandle = h; fileName = h.name;
-    } else throw new Error('no fs api');
-  }catch(e){
-    if (e.name === 'AbortError') return;
-    // Sin el explorador de archivos del navegador (o si falla): se descarga con el nombre propuesto, y el navegador
-    // pregunta dónde guardarlo si está configurado así. No se pide el nombre antes en un cuadro de texto
-    console.warn('Se guarda como descarga:', e);
-    const n = name;
-    downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), n);
-    fileName = n;
+    }catch(e){ console.error(e); }
+    const err = await writeHandle(fileHandle, projectBytes());
+    if (err){ if (confirm(writeFailMsg(fileName, err))) downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), fileName); return; }
+  } else if (window.showSaveFilePicker){
+    // Primera vez o «Guardar como»: el explorador para elegir el nombre y la carpeta (empieza en la del archivo actual)
+    const opts = {suggestedName: name, types: [FILE_TYPE]};
+    if (fileHandle) opts.startIn = fileHandle;
+    let h;
+    try{ h = await showSaveFilePicker(opts); }
+    catch(e){
+      if (e.name === 'AbortError') return;
+      console.warn('Se guarda como descarga:', e);
+      downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), name); fileName = name; dirty = false; persist(); renderHeader(); return;
+    }
+    // El nombre elegido se ve al momento y «Guardar» ya no lo vuelve a pedir
+    fileHandle = h; fileName = h.name; renderHeader();
+    const err = await writeHandle(h, projectBytes());
+    if (err){ persist(); if (confirm(writeFailMsg(h.name, err))) downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), h.name); return; }
+  } else {
+    // Navegador sin explorador de archivos (por ejemplo, Firefox): se descarga y el navegador pregunta dónde, si está configurado así
+    downloadBlob(new Blob([projectBytes()], {type: 'application/json'}), name); fileName = name;
   }
   dirty = false; persist(); renderHeader();
 }
